@@ -1207,9 +1207,7 @@ async function deleteClass(id) {
         renderPage('classes');
     }
 }
-
-// ============================================================
-// 10. QUẢN LÝ ĐIỂM
+// 10. QUẢN LÝ ĐIỂM (CÓ CỘT NĂNG LỰC & PHẨM CHẤT)
 // ============================================================
 function renderScores() {
     const classOptions = APP_STATE.classes.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
@@ -1244,6 +1242,8 @@ function renderScores() {
                         <th>STT</th><th>Mã HS</th><th>Họ tên</th><th>Lớp</th>
                         <th>Giữa kỳ 1</th><th>Cuối kỳ 1</th>
                         <th>Giữa kỳ 2</th><th>Cuối kỳ 2</th>
+                        <th>Năng lực</th>
+                        <th>Phẩm chất</th>
                         <th>Thao tác</th>
                     </tr></thead>
                     <tbody id="scoreTableBody"></tbody>
@@ -1268,14 +1268,20 @@ function initScoreTable() {
     if (cls) list = list.filter(s => s.class === cls);
     const subject = APP_STATE.currentSubject;
     const gkOptions = ['', 'Hoàn thành tốt', 'Hoàn thành', 'Chưa hoàn thành'];
+    const compOptions = ['', 'Tốt', 'Đạt', 'Cần cố gắng'];
 
     tbody.innerHTML = list.map((s, idx) => {
         const studentScores = APP_STATE.scores[s.id] || {};
         const sc = studentScores[subject] || { giuaKy1: '', cuoiKy1: null, giuaKy2: '', cuoiKy2: null };
+        // Lấy năng lực và phẩm chất từ student (lưu trong student)
+        const comp = s.competence || '';
+        const qual = s.quality || '';
         const gk1Opts = gkOptions.map(opt => `<option value="${opt}" ${opt === sc.giuaKy1 ? 'selected' : ''}>${opt || ''}</option>`).join('');
         const gk2Opts = gkOptions.map(opt => `<option value="${opt}" ${opt === sc.giuaKy2 ? 'selected' : ''}>${opt || ''}</option>`).join('');
         const ck1Val = (sc.cuoiKy1 !== null && sc.cuoiKy1 !== undefined) ? sc.cuoiKy1 : '';
         const ck2Val = (sc.cuoiKy2 !== null && sc.cuoiKy2 !== undefined) ? sc.cuoiKy2 : '';
+        const compOpts = compOptions.map(opt => `<option value="${opt}" ${opt === comp ? 'selected' : ''}>${opt || ''}</option>`).join('');
+        const qualOpts = compOptions.map(opt => `<option value="${opt}" ${opt === qual ? 'selected' : ''}>${opt || ''}</option>`).join('');
         return `<tr>
             <td>${idx + 1}</td>
             <td>${s.id}</td>
@@ -1297,6 +1303,16 @@ function initScoreTable() {
             <td>
                 <input type="number" min="0" max="10" step="0.5" value="${ck2Val}" style="width:70px;" onchange="updateScore('${s.id}','cuoiKy2',this.value)">
             </td>
+            <td>
+                <select style="width:120px;" onchange="updateScore('${s.id}','competence',this.value)">
+                    ${compOpts}
+                </select>
+            </td>
+            <td>
+                <select style="width:120px;" onchange="updateScore('${s.id}','quality',this.value)">
+                    ${qualOpts}
+                </select>
+            </td>
             <td><button class="btn btn-primary btn-sm" onclick="saveScore('${s.id}')"><i class="fas fa-save"></i></button></td>
         </tr>`;
     }).join('');
@@ -1313,9 +1329,16 @@ function updateScore(studentId, field, value) {
     const sc = APP_STATE.scores[studentId][subject];
     if (field === 'giuaKy1' || field === 'giuaKy2') {
         sc[field] = value;
-    } else {
+    } else if (field === 'cuoiKy1' || field === 'cuoiKy2') {
         const num = parseFloat(value);
         sc[field] = isNaN(num) ? null : num;
+    } else if (field === 'competence' || field === 'quality') {
+        // Cập nhật vào học sinh
+        const student = APP_STATE.students.find(s => s.id === studentId);
+        if (student) {
+            student[field] = value;
+            localStorage.setItem('students', JSON.stringify(APP_STATE.students));
+        }
     }
     localStorage.setItem('scores', JSON.stringify(APP_STATE.scores));
 }
@@ -1325,7 +1348,6 @@ function saveScore(studentId) {
     showToast('Đã lưu điểm!');
     initScoreTable();
 }
-
 // ============================================================
 // 11. ĐIỂM DANH
 // ============================================================
@@ -2263,7 +2285,9 @@ function exportScoreClass() {
             'Giữa kỳ 1': sc.giuaKy1,
             'Cuối kỳ 1': sc.cuoiKy1 !== null ? sc.cuoiKy1 : '',
             'Giữa kỳ 2': sc.giuaKy2,
-            'Cuối kỳ 2': sc.cuoiKy2 !== null ? sc.cuoiKy2 : ''
+            'Cuối kỳ 2': sc.cuoiKy2 !== null ? sc.cuoiKy2 : '',
+            'Năng lực': s.competence || '',
+            'Phẩm chất': s.quality || ''
         };
     });
     const wb = XLSX.utils.book_new();
