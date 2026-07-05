@@ -184,7 +184,6 @@ function initData() {
             if (!Array.isArray(parsed)) {
                 throw new Error('Files data is not an array');
             }
-            // Lọc bỏ các file không có data (hỏng) và chỉ giữ file có id, name
             APP_STATE.files = parsed.filter(f => f && f.id && f.name);
         } catch (e) {
             console.warn('Files data corrupted, resetting...', e);
@@ -1273,7 +1272,6 @@ function initScoreTable() {
     tbody.innerHTML = list.map((s, idx) => {
         const studentScores = APP_STATE.scores[s.id] || {};
         const sc = studentScores[subject] || { giuaKy1: '', cuoiKy1: null, giuaKy2: '', cuoiKy2: null };
-        // Lấy năng lực và phẩm chất từ student (lưu trong student)
         const comp = s.competence || '';
         const qual = s.quality || '';
         const gk1Opts = gkOptions.map(opt => `<option value="${opt}" ${opt === sc.giuaKy1 ? 'selected' : ''}>${opt || ''}</option>`).join('');
@@ -1333,7 +1331,6 @@ function updateScore(studentId, field, value) {
         const num = parseFloat(value);
         sc[field] = isNaN(num) ? null : num;
     } else if (field === 'competence' || field === 'quality') {
-        // Cập nhật vào học sinh
         const student = APP_STATE.students.find(s => s.id === studentId);
         if (student) {
             student[field] = value;
@@ -1666,7 +1663,7 @@ async function deleteDiscipline(id) {
 }
 
 // ============================================================
-// 14. QUẢN LÝ FILE (ĐÃ SỬA LỖI - HỖ TRỢ GIỚI HẠN DUNG LƯỢNG)
+// 14. QUẢN LÝ FILE (ĐÃ CẬP NHẬT GIAO DIỆN ĐẦY ĐỦ)
 // ============================================================
 function renderFiles() {
     const files = APP_STATE.files;
@@ -1683,7 +1680,15 @@ function renderFiles() {
             </div>
             <div class="table-wrapper">
                 <table>
-                    <thead><tr><th>STT</th><th>Tên file</th><th>Loại</th><th>Dung lượng</th><th>Ngày tải</th><th>Mô tả</th><th>Thao tác</th></tr></thead>
+                    <thead><tr>
+                        <th>STT</th>
+                        <th>Tên file</th>
+                        <th>Loại</th>
+                        <th>Dung lượng</th>
+                        <th>Ngày tải</th>
+                        <th>Mô tả</th>
+                        <th>Thao tác</th>
+                    </tr></thead>
                     <tbody>
                         ${files.length === 0 ? '<tr><td colspan="7" class="text-center text-muted">Chưa có file nào.</td></tr>' :
                         files.map((f, i) => `
@@ -2495,197 +2500,98 @@ document.addEventListener('DOMContentLoaded', function() {
     window.downloadAvatar = downloadAvatar;
     window.backupData = backupData;
     window.restoreData = restoreData;
-    // ============================================================
-// 20. BACKUP & RESTORE TOÀN BỘ DỮ LIỆU
-// ============================================================
-function backupData() {
-    try {
-        const data = {
-            students: APP_STATE.students,
-            classes: APP_STATE.classes,
-            scores: APP_STATE.scores,
-            attendance: APP_STATE.attendance,
-            rewards: APP_STATE.rewards,
-            disciplines: APP_STATE.disciplines,
-            files: APP_STATE.files,
-            settings: APP_STATE.settings,
-            // Lưu thêm thông tin thời gian backup
-            backedUpAt: new Date().toISOString(),
-            version: '2.0'
-        };
-        const json = JSON.stringify(data, null, 2);
-        const blob = new Blob([json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `backup_qlhs_${new Date().toISOString().slice(0,10)}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        showToast('Tải backup thành công!', 'success');
-    } catch (err) {
-        showToast('Lỗi khi tạo backup: ' + err.message, 'error');
-    }
-}
-
-function restoreData() {
-    // Tạo input file ẩn và click
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
-    input.style.display = 'none';
-    document.body.appendChild(input);
-    input.click();
-
-    input.addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = function(ev) {
-            try {
-                const data = JSON.parse(ev.target.result);
-                // Kiểm tra cấu trúc dữ liệu (tối thiểu)
-                if (!data.students || !data.classes || !data.scores) {
-                    showToast('File backup không hợp lệ!', 'error');
-                    return;
-                }
-                // Xác nhận trước khi ghi đè
-                showModal(
-                    'Xác nhận phục hồi',
-                    `<p>Bạn sẽ thay thế toàn bộ dữ liệu hiện tại bằng dữ liệu từ backup.</p>
-                     <p><strong>Ngày backup:</strong> ${data.backedUpAt ? new Date(data.backedUpAt).toLocaleString() : 'Không rõ'}</p>
-                     <p>Số học sinh: ${data.students.length}</p>
-                     <p style="color:#dc2626;">Hành động này không thể hoàn tác!</p>`,
-                    'Phục hồi',
-                    'Hủy'
-                ).then(confirmed => {
-                    if (confirmed) {
-                        // Gán dữ liệu
-                        APP_STATE.students = data.students;
-                        APP_STATE.classes = data.classes;
-                        APP_STATE.scores = data.scores || {};
-                        APP_STATE.attendance = data.attendance || [];
-                        APP_STATE.rewards = data.rewards || [];
-                        APP_STATE.disciplines = data.disciplines || [];
-                        APP_STATE.files = data.files || [];
-                        if (data.settings) APP_STATE.settings = data.settings;
-
-                        // Lưu xuống localStorage
-                        localStorage.setItem('students', JSON.stringify(APP_STATE.students));
-                        localStorage.setItem('classes', JSON.stringify(APP_STATE.classes));
-                        localStorage.setItem('scores', JSON.stringify(APP_STATE.scores));
-                        localStorage.setItem('attendance', JSON.stringify(APP_STATE.attendance));
-                        localStorage.setItem('rewards', JSON.stringify(APP_STATE.rewards));
-                        localStorage.setItem('disciplines', JSON.stringify(APP_STATE.disciplines));
-                        localStorage.setItem('files', JSON.stringify(APP_STATE.files));
-                        localStorage.setItem('settings', JSON.stringify(APP_STATE.settings));
-
-                        updateClassCounts();
-                        showToast('Phục hồi dữ liệu thành công!');
-                        renderPage(APP_STATE.currentPage);
-                    }
-                });
-            } catch (err) {
-                showToast('Lỗi đọc file backup: ' + err.message, 'error');
-            }
-        };
-        reader.readAsText(file);
-        // Xóa input sau khi dùng
-        document.body.removeChild(input);
-    });
-}
-// ============================================================
-// 20. BACKUP & RESTORE TOÀN BỘ DỮ LIỆU
-// ============================================================
-function backupData() {
-    try {
-        const data = {
-            students: APP_STATE.students,
-            classes: APP_STATE.classes,
-            scores: APP_STATE.scores,
-            attendance: APP_STATE.attendance,
-            rewards: APP_STATE.rewards,
-            disciplines: APP_STATE.disciplines,
-            files: APP_STATE.files,
-            settings: APP_STATE.settings,
-            backedUpAt: new Date().toISOString(),
-            version: '2.0'
-        };
-        const json = JSON.stringify(data, null, 2);
-        const blob = new Blob([json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `backup_qlhs_${new Date().toISOString().slice(0,10)}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        showToast('Tải backup thành công!', 'success');
-    } catch (err) {
-        showToast('Lỗi khi tạo backup: ' + err.message, 'error');
-    }
-}
-
-function restoreData() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
-    input.style.display = 'none';
-    document.body.appendChild(input);
-    input.click();
-
-    input.addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = function(ev) {
-            try {
-                const data = JSON.parse(ev.target.result);
-                if (!data.students || !data.classes || !data.scores) {
-                    showToast('File backup không hợp lệ!', 'error');
-                    return;
-                }
-                showModal(
-                    'Xác nhận phục hồi',
-                    `<p>Bạn sẽ thay thế toàn bộ dữ liệu hiện tại bằng dữ liệu từ backup.</p>
-                     <p><strong>Ngày backup:</strong> ${data.backedUpAt ? new Date(data.backedUpAt).toLocaleString() : 'Không rõ'}</p>
-                     <p>Số học sinh: ${data.students.length}</p>
-                     <p style="color:#dc2626;">Hành động này không thể hoàn tác!</p>`,
-                    'Phục hồi',
-                    'Hủy'
-                ).then(confirmed => {
-                    if (confirmed) {
-                        APP_STATE.students = data.students;
-                        APP_STATE.classes = data.classes;
-                        APP_STATE.scores = data.scores || {};
-                        APP_STATE.attendance = data.attendance || [];
-                        APP_STATE.rewards = data.rewards || [];
-                        APP_STATE.disciplines = data.disciplines || [];
-                        APP_STATE.files = data.files || [];
-                        if (data.settings) APP_STATE.settings = data.settings;
-
-                        localStorage.setItem('students', JSON.stringify(APP_STATE.students));
-                        localStorage.setItem('classes', JSON.stringify(APP_STATE.classes));
-                        localStorage.setItem('scores', JSON.stringify(APP_STATE.scores));
-                        localStorage.setItem('attendance', JSON.stringify(APP_STATE.attendance));
-                        localStorage.setItem('rewards', JSON.stringify(APP_STATE.rewards));
-                        localStorage.setItem('disciplines', JSON.stringify(APP_STATE.disciplines));
-                        localStorage.setItem('files', JSON.stringify(APP_STATE.files));
-                        localStorage.setItem('settings', JSON.stringify(APP_STATE.settings));
-
-                        updateClassCounts();
-                        showToast('Phục hồi dữ liệu thành công!');
-                        renderPage(APP_STATE.currentPage);
-                    }
-                });
-            } catch (err) {
-                showToast('Lỗi đọc file backup: ' + err.message, 'error');
-            }
-        };
-        reader.readAsText(file);
-        document.body.removeChild(input);
-    });
-}
 });
+
+// ============================================================
+// 20. BACKUP & RESTORE TOÀN BỘ DỮ LIỆU
+// ============================================================
+function backupData() {
+    try {
+        const data = {
+            students: APP_STATE.students,
+            classes: APP_STATE.classes,
+            scores: APP_STATE.scores,
+            attendance: APP_STATE.attendance,
+            rewards: APP_STATE.rewards,
+            disciplines: APP_STATE.disciplines,
+            files: APP_STATE.files,
+            settings: APP_STATE.settings,
+            backedUpAt: new Date().toISOString(),
+            version: '2.0'
+        };
+        const json = JSON.stringify(data, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `backup_qlhs_${new Date().toISOString().slice(0,10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('Tải backup thành công!', 'success');
+    } catch (err) {
+        showToast('Lỗi khi tạo backup: ' + err.message, 'error');
+    }
+}
+
+function restoreData() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.style.display = 'none';
+    document.body.appendChild(input);
+    input.click();
+
+    input.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(ev) {
+            try {
+                const data = JSON.parse(ev.target.result);
+                if (!data.students || !data.classes || !data.scores) {
+                    showToast('File backup không hợp lệ!', 'error');
+                    return;
+                }
+                showModal(
+                    'Xác nhận phục hồi',
+                    `<p>Bạn sẽ thay thế toàn bộ dữ liệu hiện tại bằng dữ liệu từ backup.</p>
+                     <p><strong>Ngày backup:</strong> ${data.backedUpAt ? new Date(data.backedUpAt).toLocaleString() : 'Không rõ'}</p>
+                     <p>Số học sinh: ${data.students.length}</p>
+                     <p style="color:#dc2626;">Hành động này không thể hoàn tác!</p>`,
+                    'Phục hồi',
+                    'Hủy'
+                ).then(confirmed => {
+                    if (confirmed) {
+                        APP_STATE.students = data.students;
+                        APP_STATE.classes = data.classes;
+                        APP_STATE.scores = data.scores || {};
+                        APP_STATE.attendance = data.attendance || [];
+                        APP_STATE.rewards = data.rewards || [];
+                        APP_STATE.disciplines = data.disciplines || [];
+                        APP_STATE.files = data.files || [];
+                        if (data.settings) APP_STATE.settings = data.settings;
+
+                        localStorage.setItem('students', JSON.stringify(APP_STATE.students));
+                        localStorage.setItem('classes', JSON.stringify(APP_STATE.classes));
+                        localStorage.setItem('scores', JSON.stringify(APP_STATE.scores));
+                        localStorage.setItem('attendance', JSON.stringify(APP_STATE.attendance));
+                        localStorage.setItem('rewards', JSON.stringify(APP_STATE.rewards));
+                        localStorage.setItem('disciplines', JSON.stringify(APP_STATE.disciplines));
+                        localStorage.setItem('files', JSON.stringify(APP_STATE.files));
+                        localStorage.setItem('settings', JSON.stringify(APP_STATE.settings));
+
+                        updateClassCounts();
+                        showToast('Phục hồi dữ liệu thành công!');
+                        renderPage(APP_STATE.currentPage);
+                    }
+                });
+            } catch (err) {
+                showToast('Lỗi đọc file backup: ' + err.message, 'error');
+            }
+        };
+        reader.readAsText(file);
+        document.body.removeChild(input);
+    });
+}
