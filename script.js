@@ -77,12 +77,13 @@ async function loadAllData() {
             .select('*, app3_classes(name)')
             .order('full_name');
         if (studentErr) throw studentErr;
-        // Chuyển đổi để có trường class (tên) thay vì class_id
+        
+        // QUAN TRỌNG: Lưu UUID gốc của Supabase vào `db_uuid` để dùng cho bảng điểm (app3_scores)
         APP_STATE.students = (students || []).map(s => ({
             ...s,
+            db_uuid: s.id, // Lưu UUID
             class: s.app3_classes?.name || '',
-            // giữ lại các trường cũ để tương thích
-            id: s.student_code,
+            id: s.student_code, // Vẫn giữ id là Mã HS để giao diện hiển thị
             fullName: s.full_name,
             dob: s.dob,
             gender: s.gender,
@@ -99,7 +100,6 @@ async function loadAllData() {
             note: s.note,
             avatar: s.avatar_url || DEFAULT_AVATAR,
             grade: s.grade,
-            // lưu class_id để dùng sau
             class_id: s.class_id
         }));
 
@@ -111,16 +111,22 @@ async function loadAllData() {
         // Chuyển đổi về dạng object: { studentId: { subject: { ... } } }
         APP_STATE.scores = {};
         (scoresData || []).forEach(rec => {
-            const studentId = rec.student_id;
-            if (!APP_STATE.scores[studentId]) APP_STATE.scores[studentId] = {};
-            // Lấy subject từ rec (VD: 'Tin học')
-            const subject = rec.subject;
-            APP_STATE.scores[studentId][subject] = {
-                giuaKy1: rec.giua_ky_1 || '',
-                cuoiKy1: rec.cuoi_ky_1 !== null ? rec.cuoi_ky_1 : null,
-                giuaKy2: rec.giua_ky_2 || '',
-                cuoiKy2: rec.cuoi_ky_2 !== null ? rec.cuoi_ky_2 : null
-            };
+            const studentUuid = rec.student_id;
+            // Tìm lại Mã HS (student_code) từ UUID vừa lấy được
+            const student = APP_STATE.students.find(s => s.db_uuid === studentUuid);
+            if (student) {
+                const studentId = student.id; // Lấy 'HS10001'
+                if (!APP_STATE.scores[studentId]) APP_STATE.scores[studentId] = {};
+                const subject = rec.subject;
+                                APP_STATE.scores[studentId][subject] = {
+                    giuaKy1: rec.giua_ky_1 || '',
+                    cuoiKy1: rec.cuoi_ky_1 !== null ? rec.cuoi_ky_1 : null,
+                    giuaKy2: rec.giua_ky_2 || '',
+                    cuoiKy2: rec.cuoi_ky_2 !== null ? rec.cuoi_ky_2 : null,
+                    competence: rec.competence || '', // Bổ sung
+                    quality: rec.quality || ''        // Bổ sung
+                };
+            }
         });
 
         // 4. Tải attendance
@@ -142,10 +148,13 @@ async function loadAllData() {
                 };
                 APP_STATE.attendance.push(attMap[key]);
             }
-            attMap[key].records.push({
-                studentId: rec.student_id,
-                status: rec.status
-            });
+            const student = APP_STATE.students.find(s => s.db_uuid === rec.student_id);
+            if (student) {
+                attMap[key].records.push({
+                    studentId: student.id,
+                    status: rec.status
+                });
+            }
         });
 
         // 5. Tải rewards
@@ -156,7 +165,7 @@ async function loadAllData() {
         if (rewErr) throw rewErr;
         APP_STATE.rewards = (rewards || []).map(r => ({
             id: r.id,
-            studentId: r.student_id,
+            studentId: r.student_id, // Lưu UUID của học sinh được khen
             date: r.date,
             content: r.content,
             decisionBy: r.decision_by
@@ -170,7 +179,7 @@ async function loadAllData() {
         if (discErr) throw discErr;
         APP_STATE.disciplines = (disciplines || []).map(d => ({
             id: d.id,
-            studentId: d.student_id,
+            studentId: d.student_id, // Lưu UUID của học sinh bị kỷ luật
             date: d.date,
             content: d.content,
             decisionBy: d.decision_by
@@ -460,7 +469,6 @@ const STUDENT_PAGE_SIZE = 10;
 let studentSort = { field: 'fullName', order: 'asc' };
 
 function renderStudents() {
-    // Giữ nguyên HTML như cũ (không thay đổi)
     return `
         <div class="card">
             <div class="flex-between mb-2">
@@ -758,28 +766,6 @@ function getStudentFormData() {
     };
 }
 
-// Hàm upload ảnh lên storage và trả về URL công khai
-async function uploadAvatar(file, studentCode) {
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${studentCode}_${Date.now()}.${fileExt}`;
-    const filePath = `students/${studentCode}/avatar/${fileName}`;
-
-    const { data, error } = await supabase.storage
-        .from('app3-files')
-        .upload(filePath, file, {
-            cacheControl: '3600',
-            upsert: true
-        });
-    if (error) throw error;
-
-    // Lấy URL công khai (bucket đã public)
-    const { data: urlData } = supabase.storage
-        .from('app3-files')
-        .getPublicUrl(filePath);
-    return urlData.publicUrl;
-}
-
-// Hàm thêm học sinh (có upload avatar)
 async function addStudentToSupabase(data, avatarFile) {
     const classObj = APP_STATE.classes.find(c => c.name === data.class);
     const classId = classObj ? classObj.id : null;
@@ -790,7 +776,6 @@ async function addStudentToSupabase(data, avatarFile) {
     }, 10000);
     const studentCode = `HS${String(maxCode + 1).padStart(5, '0')}`;
 
-    // Xử lý avatar: luôn chuyển sang Base64
     let avatarUrl = DEFAULT_AVATAR;
     if (avatarFile) {
         try {
@@ -799,12 +784,10 @@ async function addStudentToSupabase(data, avatarFile) {
                 reader.onload = (e) => resolve(e.target.result);
                 reader.readAsDataURL(avatarFile);
             });
-            // Resize để giảm dung lượng (tối đa 200x200)
             const resized = await resizeImage(base64, 200, 200, 0.7);
             avatarUrl = resized;
         } catch (err) {
             console.warn('Lỗi xử lý ảnh:', err);
-            // Giữ DEFAULT_AVATAR
         }
     }
 
@@ -826,7 +809,7 @@ async function addStudentToSupabase(data, avatarFile) {
         enrollment_date: data.enrollmentDate || null,
         status: data.status || 'Đang học',
         note: data.note,
-        avatar_url: avatarUrl   // Lưu Base64
+        avatar_url: avatarUrl
     };
 
     const { data: inserted, error } = await supabase
@@ -839,6 +822,7 @@ async function addStudentToSupabase(data, avatarFile) {
 
     const newStudent = {
         ...inserted,
+        db_uuid: inserted.id,
         id: inserted.student_code,
         fullName: inserted.full_name,
         dob: inserted.dob,
@@ -876,7 +860,6 @@ function openAddStudent() {
                 showToast('Vui lòng điền đầy đủ thông tin!', 'error');
                 return;
             }
-            // Lấy file avatar
             const avatarInput = document.getElementById('sfAvatarInput');
             const avatarFile = avatarInput && avatarInput.files.length ? avatarInput.files[0] : null;
 
@@ -891,7 +874,6 @@ function openAddStudent() {
     });
 }
 
-// Hàm sửa học sinh
 async function updateStudentInSupabase(id, data, avatarFile) {
     const existing = APP_STATE.students.find(s => s.id === id);
     if (!existing) throw new Error('Không tìm thấy học sinh');
@@ -899,10 +881,7 @@ async function updateStudentInSupabase(id, data, avatarFile) {
     const classObj = APP_STATE.classes.find(c => c.name === data.class);
     const classId = classObj ? classObj.id : null;
 
-    // Mặc định giữ avatar cũ
     let avatarUrl = existing.avatar;
-
-    // Nếu có file mới, chuyển sang Base64
     if (avatarFile) {
         try {
             const reader = new FileReader();
@@ -914,10 +893,8 @@ async function updateStudentInSupabase(id, data, avatarFile) {
             avatarUrl = resized;
         } catch (err) {
             console.warn('Lỗi xử lý ảnh mới:', err);
-            // Nếu lỗi, giữ avatar cũ
         }
     } else {
-        // Không có file mới: giữ nguyên avatar cũ, nếu cũ là null/undefined thì dùng default
         if (!avatarUrl || avatarUrl === DEFAULT_AVATAR) {
             avatarUrl = DEFAULT_AVATAR;
         }
@@ -940,7 +917,7 @@ async function updateStudentInSupabase(id, data, avatarFile) {
         enrollment_date: data.enrollmentDate || null,
         status: data.status || 'Đang học',
         note: data.note,
-        avatar_url: avatarUrl   // Lưu Base64
+        avatar_url: avatarUrl
     };
 
     const { error } = await supabase
@@ -950,7 +927,6 @@ async function updateStudentInSupabase(id, data, avatarFile) {
 
     if (error) throw error;
 
-    // Cập nhật APP_STATE
     Object.assign(existing, {
         fullName: data.fullName,
         dob: data.dob,
@@ -1059,14 +1035,12 @@ async function deleteStudent(id) {
     const confirmed = await showModal('Xóa học sinh', `Bạn có chắc muốn xóa học sinh <strong>${student.fullName}</strong>?`, 'Xóa', 'Hủy');
     if (confirmed) {
         try {
-            // Xóa trong DB
             const { error } = await supabase
                 .from('app3_students')
                 .delete()
                 .eq('student_code', id);
             if (error) throw error;
 
-            // Xóa trong APP_STATE
             APP_STATE.students = APP_STATE.students.filter(s => s.id !== id);
             APP_STATE.selectedStudents = APP_STATE.selectedStudents.filter(sid => sid !== id);
             delete APP_STATE.scores[id];
@@ -1088,7 +1062,6 @@ async function deleteSelectedStudents() {
     if (confirmed) {
         try {
             const ids = APP_STATE.selectedStudents;
-            // Xóa trong DB
             const { error } = await supabase
                 .from('app3_students')
                 .delete()
@@ -1108,7 +1081,7 @@ async function deleteSelectedStudents() {
 }
 
 // ============================================================
-// 8. IMPORT / EXPORT EXCEL (học sinh) - vẫn dùng dữ liệu APP_STATE
+// 8. IMPORT / EXPORT EXCEL (học sinh)
 // ============================================================
 function exportExcel() {
     const data = APP_STATE.students.map(s => ({
@@ -1219,7 +1192,6 @@ function importExcel(event) {
                     continue;
                 }
 
-                // Xử lý ngày sinh
                 let dob = '';
                 if (dobRaw) {
                     if (typeof dobRaw === 'number') {
@@ -1265,18 +1237,15 @@ function importExcel(event) {
                     }
                 }
 
-                // Tạo student code mới
                 const maxCode = APP_STATE.students.reduce((max, s) => {
                     const num = parseInt(s.id.replace('HS', ''));
                     return num > max ? num : max;
                 }, 10000);
                 const studentCode = `HS${String(maxCode + newStudents.length + 1).padStart(5, '0')}`;
 
-                // Tìm class_id
                 const classObj = APP_STATE.classes.find(c => c.name === cls);
                 let classId = classObj ? classObj.id : null;
                 if (!classObj) {
-                    // Tạo lớp mới nếu chưa có
                     const newClass = {
                         name: cls,
                         grade: grade || cls.charAt(0),
@@ -1314,7 +1283,6 @@ function importExcel(event) {
                     quality: quality.trim(),
                     enrollment_date: enrollmentDate || new Date().toISOString().split('T')[0],
                     avatar_url: DEFAULT_AVATAR,
-                    // Thêm các trường để hiển thị
                     class: cls,
                     fullName: fullName.trim(),
                     id: studentCode
@@ -1323,7 +1291,6 @@ function importExcel(event) {
             }
 
             if (newStudents.length > 0) {
-                // Insert batch vào Supabase
                 const { data: inserted, error: insertErr } = await supabase
                     .from('app3_students')
                     .insert(newStudents.map(s => ({
@@ -1349,10 +1316,10 @@ function importExcel(event) {
                     .select();
                 if (insertErr) throw insertErr;
 
-                // Cập nhật APP_STATE
                 inserted.forEach(st => {
                     const newStudent = {
                         ...st,
+                        db_uuid: st.id,
                         id: st.student_code,
                         fullName: st.full_name,
                         dob: st.dob,
@@ -1509,15 +1476,12 @@ function editClass(id) {
                     })
                     .eq('id', id);
                 if (error) throw error;
-                // Cập nhật APP_STATE
                 const oldName = c.name;
                 c.name = name;
                 c.grade = document.getElementById('cfGrade').value;
                 c.teacher = document.getElementById('cfTeacher').value.trim() || 'Võ Thanh Đậm';
-                // Cập nhật classMap
                 delete APP_STATE.classMap[oldName];
                 APP_STATE.classMap[name] = id;
-                // Cập nhật class của học sinh
                 APP_STATE.students.forEach(s => {
                     if (s.class === oldName) s.class = name;
                 });
@@ -1620,8 +1584,8 @@ function initScoreTable() {
     tbody.innerHTML = list.map((s, idx) => {
         const studentScores = APP_STATE.scores[s.id] || {};
         const sc = studentScores[subject] || { giuaKy1: '', cuoiKy1: null, giuaKy2: '', cuoiKy2: null };
-        const comp = s.competence || '';
-        const qual = s.quality || '';
+        const comp = sc.competence || '';
+        const qual = sc.quality || '';
         const gk1Opts = gkOptions.map(opt => `<option value="${opt}" ${opt === sc.giuaKy1 ? 'selected' : ''}>${opt || ''}</option>`).join('');
         const gk2Opts = gkOptions.map(opt => `<option value="${opt}" ${opt === sc.giuaKy2 ? 'selected' : ''}>${opt || ''}</option>`).join('');
         const ck1Val = (sc.cuoiKy1 !== null && sc.cuoiKy1 !== undefined) ? sc.cuoiKy1 : '';
@@ -1664,9 +1628,9 @@ function initScoreTable() {
     }).join('');
 }
 
+// Đã sửa logic lấy UUID chính xác
 async function updateScore(studentId, field, value) {
     const subject = APP_STATE.currentSubject;
-    // Cập nhật APP_STATE
     if (!APP_STATE.scores[studentId]) {
         APP_STATE.scores[studentId] = {};
     }
@@ -1675,34 +1639,48 @@ async function updateScore(studentId, field, value) {
     }
     const sc = APP_STATE.scores[studentId][subject];
     let updateData = {};
+
     if (field === 'giuaKy1' || field === 'giuaKy2') {
         sc[field] = value;
-        // Cập nhật DB
         updateData = { [field === 'giuaKy1' ? 'giua_ky_1' : 'giua_ky_2']: value };
     } else if (field === 'cuoiKy1' || field === 'cuoiKy2') {
         const num = parseFloat(value);
         sc[field] = isNaN(num) ? null : num;
         updateData = { [field === 'cuoiKy1' ? 'cuoi_ky_1' : 'cuoi_ky_2']: isNaN(num) ? null : num };
-    } else if (field === 'competence' || field === 'quality') {
-        const student = APP_STATE.students.find(s => s.id === studentId);
-        if (student) {
-            student[field] = value;
-            // Cập nhật DB student
-            const { error } = await supabase
-                .from('app3_students')
-                .update({ [field === 'competence' ? 'competence' : 'quality']: value })
-                .eq('student_code', studentId);
-            if (error) console.error('Lỗi cập nhật năng lực/phẩm chất:', error);
-        }
-        return; // đã xử lý riêng
-    }
+        } else if (field === 'competence' || field === 'quality') {
+        // 1. Cập nhật dữ liệu trong APP_STATE để giao diện hiển thị ngay lập tức
+        if (!APP_STATE.scores[studentId]) APP_STATE.scores[studentId] = {};
+        if (!APP_STATE.scores[studentId][subject]) APP_STATE.scores[studentId][subject] = { giuaKy1: '', cuoiKy1: null, giuaKy2: '', cuoiKy2: null };
+        APP_STATE.scores[studentId][subject][field] = value;
 
-    // Cập nhật bảng scores nếu field là điểm
-    if (updateData && Object.keys(updateData).length) {
+        // 2. Lấy UUID của học sinh để lưu xuống bảng app3_scores
+        const student = APP_STATE.students.find(s => s.id === studentId);
+        if (!student) return;
+
+        // 3. Ghi dữ liệu xuống đúng bảng app3_scores (có thêm cột competence và quality)
         const { error } = await supabase
             .from('app3_scores')
             .upsert({
-                student_id: studentId,
+                student_id: student.db_uuid,
+                subject: subject,
+                [field]: value
+            }, { onConflict: 'student_id,subject' });
+            
+        if (error) {
+            console.error('Lỗi cập nhật năng lực/phẩm chất:', error);
+            showToast('Lỗi khi lưu: ' + error.message, 'error');
+        }
+        return; // Kết thúc hàm ở đây
+    }
+    // Lấy UUID của học sinh để lưu vào bảng điểm (app3_scores yêu cầu UUID)
+    const student = APP_STATE.students.find(s => s.id === studentId);
+    if (!student) return;
+
+    if (updateData && Object.keys(updateData).length) {
+        const { error } = await supabase
+            .from('app3_scores') // Đã sửa đúng tên bảng điểm
+            .upsert({
+                student_id: student.db_uuid, // Gửi UUID (dạng dài) đúng yêu cầu của Supabase
                 subject: subject,
                 ...updateData
             }, { onConflict: 'student_id,subject' });
@@ -1710,11 +1688,9 @@ async function updateScore(studentId, field, value) {
             showToast('Lỗi cập nhật điểm: ' + error.message, 'error');
         }
     }
-    // Lưu vào localStorage không còn nữa
 }
 
 function saveScore(studentId) {
-    // Đã được lưu realtime khi thay đổi, nhưng vẫn gọi để đồng bộ
     showToast('Đã lưu điểm!');
     initScoreTable();
 }
@@ -1773,7 +1749,6 @@ async function loadAttendance() {
         return;
     }
 
-    // Lấy dữ liệu điểm danh từ Supabase cho ngày và lớp này
     const { data: records, error } = await supabase
         .from('app3_attendance')
         .select('*')
@@ -1793,7 +1768,8 @@ async function loadAttendance() {
                 <tbody>
     `;
     students.forEach((s, idx) => {
-        const record = records.find(r => r.student_id === s.id);
+        // Tìm UUID của sinh viên trong records
+        const record = records.find(r => r.student_id === s.db_uuid);
         const status = record ? record.status : 'Có mặt';
         const options = statusOptions.map(opt => `<option value="${opt}" ${opt === status ? 'selected' : ''}>${opt}</option>`).join('');
         html += `
@@ -1802,7 +1778,7 @@ async function loadAttendance() {
                 <td>${s.id}</td>
                 <td>${s.fullName}</td>
                 <td>
-                    <select class="attendance-status" data-student="${s.id}" onchange="updateAttendanceStatus('${date}','${classObj.id}','${s.id}',this.value)">
+                    <select class="attendance-status" data-student="${s.db_uuid}" onchange="updateAttendanceStatus('${date}','${classObj.id}','${s.db_uuid}',this.value)">
                         ${options}
                     </select>
                 </td>
@@ -1813,12 +1789,12 @@ async function loadAttendance() {
     wrapper.innerHTML = html;
 }
 
-async function updateAttendanceStatus(date, classId, studentId, status) {
+async function updateAttendanceStatus(date, classId, studentUuid, status) {
     try {
         const { error } = await supabase
             .from('app3_attendance')
             .upsert({
-                student_id: studentId,
+                student_id: studentUuid,
                 class_id: classId,
                 attendance_date: date,
                 status: status
@@ -1831,7 +1807,6 @@ async function updateAttendanceStatus(date, classId, studentId, status) {
 }
 
 async function saveAttendance() {
-    // Thực tế đã lưu từng thay đổi, nhưng có thể gọi load lại
     showToast('Đã lưu điểm danh!');
     loadAttendance();
 }
@@ -1844,7 +1819,6 @@ function exportAttendanceExcel() {
         return;
     }
 
-    // Lấy dữ liệu từ APP_STATE.attendance (đã được load từ Supabase)
     const records = APP_STATE.attendance.find(a => a.class === cls && a.date === date);
     if (!records || records.records.length === 0) {
         showToast('Không có dữ liệu điểm danh cho ngày và lớp này.', 'warning');
@@ -1872,13 +1846,6 @@ function exportAttendanceExcel() {
 // ============================================================
 // 12. QUẢN LÝ KHEN THƯỞNG (CRUD)
 // ============================================================
-function generateSampleRewards() {
-    return [
-        { id: 'R1', studentId: APP_STATE.students[0]?.id || '', date: '2025-09-10', content: 'Đạt giải Nhất văn nghệ toàn trường', decisionBy: 'Võ Thanh Đậm' },
-        { id: 'R2', studentId: APP_STATE.students[4]?.id || '', date: '2025-09-15', content: 'Học sinh xuất sắc tháng 9', decisionBy: 'Võ Thanh Đậm' }
-    ];
-}
-
 function renderRewards() {
     const rewards = APP_STATE.rewards;
     const studentMap = Object.fromEntries(APP_STATE.students.map(s => [s.id, s.fullName]));
@@ -1924,7 +1891,7 @@ function openAddReward() {
         <div class="form-group"><label>Người quyết định</label><input type="text" id="rewardDecision" value="Võ Thanh Đậm"></div>
     `, 'Thêm', 'Hủy').then(async confirmed => {
         if (confirmed) {
-            const studentId = document.getElementById('rewardStudent').value;
+            const studentId = document.getElementById('rewardStudent').value; // Đây là Mã HS
             const date = document.getElementById('rewardDate').value;
             const content = document.getElementById('rewardContent').value.trim();
             const decision = document.getElementById('rewardDecision').value.trim() || 'Võ Thanh Đậm';
@@ -1932,11 +1899,14 @@ function openAddReward() {
                 showToast('Vui lòng chọn học sinh và nhập nội dung!', 'error');
                 return;
             }
+            const student = APP_STATE.students.find(s => s.id === studentId);
+            if (!student) return;
+
             try {
                 const { data: newReward, error } = await supabase
                     .from('app3_rewards')
                     .insert({
-                        student_id: studentId,
+                        student_id: student.db_uuid, // Gửi UUID
                         date: date,
                         content: content,
                         decision_by: decision
@@ -1946,7 +1916,7 @@ function openAddReward() {
                 if (error) throw error;
                 APP_STATE.rewards.unshift({
                     id: newReward.id,
-                    studentId: newReward.student_id,
+                    studentId: student.id, // Lưu Mã HS vào APP_STATE để dễ hiển thị
                     date: newReward.date,
                     content: newReward.content,
                     decisionBy: newReward.decision_by
@@ -1983,13 +1953,6 @@ async function deleteReward(id) {
 // ============================================================
 // 13. QUẢN LÝ KỶ LUẬT (CRUD)
 // ============================================================
-function generateSampleDisciplines() {
-    return [
-        { id: 'D1', studentId: APP_STATE.students[2]?.id || '', date: '2025-09-12', content: 'Đi học muộn nhiều lần', decisionBy: 'Võ Thanh Đậm' },
-        { id: 'D2', studentId: APP_STATE.students[8]?.id || '', date: '2025-09-20', content: 'Không làm bài tập về nhà', decisionBy: 'Võ Thanh Đậm' }
-    ];
-}
-
 function renderDisciplines() {
     const disciplines = APP_STATE.disciplines;
     const studentMap = Object.fromEntries(APP_STATE.students.map(s => [s.id, s.fullName]));
@@ -2043,11 +2006,14 @@ function openAddDiscipline() {
                 showToast('Vui lòng chọn học sinh và nhập nội dung!', 'error');
                 return;
             }
+            const student = APP_STATE.students.find(s => s.id === studentId);
+            if (!student) return;
+
             try {
                 const { data: newDis, error } = await supabase
                     .from('app3_disciplines')
                     .insert({
-                        student_id: studentId,
+                        student_id: student.db_uuid, // Gửi UUID
                         date: date,
                         content: content,
                         decision_by: decision
@@ -2057,7 +2023,7 @@ function openAddDiscipline() {
                 if (error) throw error;
                 APP_STATE.disciplines.unshift({
                     id: newDis.id,
-                    studentId: newDis.student_id,
+                    studentId: student.id,
                     date: newDis.date,
                     content: newDis.content,
                     decisionBy: newDis.decision_by
@@ -2148,7 +2114,6 @@ function renderFiles() {
 }
 
 function calculateTotalSize() {
-    // Tính tổng dung lượng từ APP_STATE.files
     let totalBytes = 0;
     APP_STATE.files.forEach(f => {
         const sizeStr = f.size;
@@ -2194,7 +2159,6 @@ async function openUploadFile() {
             }
 
             try {
-                // Upload lên storage
                 const fileExt = file.name.split('.').pop();
                 const fileName = `${Date.now()}_${file.name}`;
                 const filePath = `documents/${fileName}`;
@@ -2204,12 +2168,10 @@ async function openUploadFile() {
                     .upload(filePath, file, { cacheControl: '3600' });
                 if (uploadErr) throw uploadErr;
 
-                // Lấy public URL
                 const { data: urlData } = supabase.storage
                     .from('app3-files')
                     .getPublicUrl(filePath);
 
-                // Lưu metadata vào bảng app3_files
                 const { data: fileMeta, error: metaErr } = await supabase
                     .from('app3_files')
                     .insert({
@@ -2225,7 +2187,6 @@ async function openUploadFile() {
                     .single();
                 if (metaErr) throw metaErr;
 
-                // Thêm vào APP_STATE
                 APP_STATE.files.unshift({
                     id: fileMeta.id,
                     name: fileMeta.file_name,
@@ -2267,7 +2228,6 @@ function viewFile(id) {
     } else if (isPDF) {
         contentHTML = `<iframe src="${file.url}" style="width:100%; height:500px; border:none;"></iframe>`;
     } else if (isText) {
-        // Tải nội dung text để hiển thị
         try {
             fetch(file.url)
                 .then(res => res.text())
@@ -2354,14 +2314,12 @@ async function deleteFile(id) {
     const confirmed = await showModal('Xóa file', `Bạn có chắc muốn xóa file <strong>${file.name}</strong>?`, 'Xóa', 'Hủy');
     if (confirmed) {
         try {
-            // Xóa file trong storage
             if (file.path) {
                 const { error: storageErr } = await supabase.storage
                     .from('app3-files')
                     .remove([file.path]);
                 if (storageErr) console.warn('Không thể xóa file trong storage:', storageErr);
             }
-            // Xóa metadata
             const { error } = await supabase
                 .from('app3_files')
                 .delete()
@@ -2556,11 +2514,12 @@ async function saveSettings() {
         document.documentElement.removeAttribute('data-theme');
         APP_STATE.darkMode = false;
     }
-    // Lưu vào Supabase
     try {
+        // Đã sửa 'id: 1' thành 'config_id: 1'
         const { error } = await supabase
             .from('app3_settings')
             .upsert({
+                config_id: 1,
                 school_name: settings.schoolName,
                 school_year: settings.schoolYear,
                 teacher_name: settings.teacherName,
@@ -2579,7 +2538,6 @@ function changePassword() {
     const confirm = document.getElementById('confirmPassword').value;
     if (!pwd || pwd.length < 6) { showToast('Mật khẩu phải có ít nhất 6 ký tự.', 'error'); return; }
     if (pwd !== confirm) { showToast('Mật khẩu xác nhận không khớp.', 'error'); return; }
-    // Đổi mật khẩu Supabase
     supabase.auth.updateUser({ password: pwd })
         .then(({ error }) => {
             if (error) throw error;
@@ -2899,30 +2857,60 @@ async function restoreData() {
                 showLoading();
 
                 // --- 1. Phục hồi Lớp (app3_classes) ---
-                // Tạo class và map class_code -> class_id
-const classMap = {};
-for (const cls of backup.classes) {
-    const classCode = cls.id || cls.name;
-    const { data, error } = await supabase
-        .from('app3_classes')
-        .upsert({
-            class_code: classCode,
-            name: cls.name,
-            grade: cls.grade,
-            teacher: cls.teacher || 'Võ Thanh Đậm'
-        }, { onConflict: 'class_code' })
-        .select('id, class_code')
-        .single();
-    classMap[classCode] = data.id;
-}
-
-// Khi insert student, lấy class_id từ map
-const classId = classMap[s.class]; // s.class là tên lớp (VD: '3B1')
+                const classMap = {};
+                for (const cls of backup.classes) {
+                    const classCode = cls.id || cls.name;
+                    const { data, error } = await supabase
+                        .from('app3_classes')
+                        .upsert({
+                            class_code: classCode,
+                            name: cls.name,
+                            grade: cls.grade,
+                            teacher: cls.teacher || 'Võ Thanh Đậm'
+                        }, { onConflict: 'class_code' })
+                        .select('id, class_code')
+                        .single();
+                    if (error) throw new Error(`Lỗi upsert class ${cls.name}: ${error.message}`);
+                    classMap[classCode] = data.id;
+                }
 
                 // --- 2. Phục hồi Học sinh (app3_students) ---
-                // 2. Phục hồi Học sinh (app3_students)
-const studentMap = {}; // map student_code -> student_id
-
+                const studentMap = {};
+                for (const s of backup.students) {
+                    const classId = classMap[s.class];
+                    
+                    let avatarUrl = s.avatar || DEFAULT_AVATAR;
+                    if (avatarUrl && !avatarUrl.startsWith('data:image')) {
+                        avatarUrl = DEFAULT_AVATAR;
+                    }
+                    const { data, error } = await supabase
+                        .from('app3_students')
+                        .upsert({
+                            student_code: s.id,
+                            full_name: s.fullName,
+                            dob: s.dob || null,
+                            gender: s.gender || null,
+                            class_id: classId,
+                            class_code: s.class, // Đã thêm cột này để hiện Lớp
+                            grade: s.grade || null,
+                            address: s.address,
+                            phone: s.phone,
+                            email: s.email,
+                            father_name: s.fatherName,
+                            mother_name: s.motherName,
+                            parent_phone: s.parentPhone,
+                            competence: s.competence || null,
+                            quality: s.quality || null,
+                            enrollment_date: s.enrollmentDate || null,
+                            status: s.status || 'Đang học',
+                            note: s.note,
+                            avatar_url: avatarUrl
+                        }, { onConflict: 'student_code' })
+                        .select()
+                        .single();
+                    if (error) throw new Error(`Lỗi upsert student ${s.id}: ${error.message}`);
+                    studentMap[s.id] = data.id;
+                }
 
                 // --- 3. Phục hồi Điểm (app3_scores) ---
                 for (const [studentCode, subjects] of Object.entries(backup.scores)) {
@@ -2964,7 +2952,6 @@ const studentMap = {}; // map student_code -> student_id
                             }, { onConflict: 'student_id,attendance_date' });
                         if (error) {
                             console.error('Lỗi upsert attendance:', error);
-                            // không throw để tiếp tục
                         }
                     }
                 }
@@ -2999,7 +2986,7 @@ const studentMap = {}; // map student_code -> student_id
                     if (error) console.error('Lỗi insert discipline:', error);
                 }
 
-                // --- 7. Phục hồi File (app3_files) --- (chỉ metadata, không upload lại file)
+                // --- 7. Phục hồi File (app3_files) ---
                 for (const f of backup.files || []) {
                     const { error } = await supabase
                         .from('app3_files')
@@ -3016,9 +3003,11 @@ const studentMap = {}; // map student_code -> student_id
 
                 // --- 8. Phục hồi Settings (app3_settings) ---
                 if (backup.settings) {
+                    // Đã sửa 'id: 1' thành 'config_id: 1'
                     const { error } = await supabase
                         .from('app3_settings')
                         .upsert({
+                            config_id: 1,
                             school_name: backup.settings.schoolName || 'Trường Tiểu học Trần Quốc Toản',
                             school_year: backup.settings.schoolYear || '2025-2026',
                             teacher_name: backup.settings.teacherName || 'Võ Thanh Đậm',
@@ -3028,8 +3017,7 @@ const studentMap = {}; // map student_code -> student_id
                     if (error) console.error('Lỗi upsert settings:', error);
                 }
 
-                // --- Kết thúc ---
-                await loadAllData(); // tải lại dữ liệu từ Supabase
+                await loadAllData();
                 showToast('Phục hồi dữ liệu thành công!', 'success');
                 renderPage(APP_STATE.currentPage);
 
@@ -3112,8 +3100,9 @@ function initNavigation() {
         if (icon) {
             icon.className = isDark ? 'fas fa-moon' : 'fas fa-sun';
         }
-        // Lưu xuống Supabase
+        // Đã sửa 'id: 1' thành 'config_id: 1'
         supabase.from('app3_settings').upsert({
+            config_id: 1, 
             theme: APP_STATE.settings.theme
         }).then(({ error }) => {
             if (error) console.warn('Không thể lưu theme:', error);
@@ -3132,13 +3121,11 @@ function initLogin() {
         }
         showLoading();
         try {
-            // Đăng nhập bằng email/password (giả định username là email)
             const { data, error } = await supabase.auth.signInWithPassword({
                 email: username,
                 password: password
             });
             if (error) throw error;
-            // Đăng nhập thành công
             document.getElementById('loginScreen').style.display = 'none';
             document.getElementById('app').classList.remove('hidden');
             if (document.getElementById('rememberMe').checked) {
@@ -3186,7 +3173,6 @@ function initLogin() {
         showToast('Đã đăng xuất.', 'info');
     });
 
-    // Kiểm tra session
     supabase.auth.getSession().then(({ data: { session } }) => {
         if (session) {
             document.getElementById('loginScreen').style.display = 'none';
@@ -3208,7 +3194,6 @@ document.addEventListener('DOMContentLoaded', function() {
         if (icon) icon.className = 'fas fa-sun';
     }
 
-    // Export các hàm ra window để gọi từ HTML
     window.openAddStudent = openAddStudent;
     window.editStudent = editStudent;
     window.viewStudent = viewStudent;
