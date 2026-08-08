@@ -72,18 +72,21 @@ async function loadAllData() {
         APP_STATE.classes.forEach(c => { APP_STATE.classMap[c.name] = c.id; });
 
         // 2. Tải students (kèm class name để hiển thị)
+                // 2. Tải students (kèm class name để hiển thị)
         const { data: students, error: studentErr } = await supabase
             .from('app3_students')
             .select('*, app3_classes(name)')
             .order('full_name');
         if (studentErr) throw studentErr;
         
-        // QUAN TRỌNG: Lưu UUID gốc của Supabase vào `db_uuid` để dùng cho bảng điểm (app3_scores)
+        // QUAN TRỌNG: Lưu UUID gốc của Supabase vào `db_uuid`
         APP_STATE.students = (students || []).map(s => ({
             ...s,
-            db_uuid: s.id, // Lưu UUID
-            class: s.app3_classes?.name || '',
-            id: s.student_code, // Vẫn giữ id là Mã HS để giao diện hiển thị
+            db_uuid: s.id,
+            // --- SỬA DÒNG NÀY ---
+            // Nếu join app3_classes không ra, nó sẽ lấy dữ liệu từ s.class_code (dữ liệu backup lưu)
+            class: s.app3_classes?.name || s.class_code || s.class || '', 
+            id: s.student_code,
             fullName: s.full_name,
             dob: s.dob,
             gender: s.gender,
@@ -245,7 +248,9 @@ async function loadAllData() {
  */
 function updateClassCounts() {
     APP_STATE.classes.forEach(cls => {
-        const list = APP_STATE.students.filter(s => s.class_id === cls.id);
+        // Cách đếm mới: Lọc học sinh dựa trên Tên lớp (cls.name) thay vì class_id
+        const list = APP_STATE.students.filter(s => s.class === cls.name || s.class_code === cls.name);
+        
         cls.count = list.length;
         cls.male = list.filter(s => s.gender === 'Nam').length;
         cls.female = list.filter(s => s.gender === 'Nữ').length;
@@ -1364,6 +1369,7 @@ function importExcel(event) {
 // 9. QUẢN LÝ LỚP (CRUD với Supabase)
 // ============================================================
 function renderClasses() {
+    updateClassCounts(); // <--- CHỈ CẦN THÊM DÒNG NÀY VÀO ĐẦU HÀM
     const classOptions = APP_STATE.classes.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
     return `
         <div class="card">
@@ -2516,16 +2522,16 @@ async function saveSettings() {
     }
     try {
         // Đã sửa 'id: 1' thành 'config_id: 1'
-        const { error } = await supabase
+                const { error } = await supabase
             .from('app3_settings')
             .upsert({
-                config_id: 1,
+                config_id: 1, // Quan trọng
                 school_name: settings.schoolName,
                 school_year: settings.schoolYear,
                 teacher_name: settings.teacherName,
                 theme: settings.theme,
                 logo_url: settings.logo || ''
-            });
+            }, { onConflict: 'config_id' }); // Bổ sung dòng này
         if (error) throw error;
         showToast('Đã lưu cài đặt!');
     } catch (err) {
@@ -3101,10 +3107,10 @@ function initNavigation() {
             icon.className = isDark ? 'fas fa-moon' : 'fas fa-sun';
         }
         // Đã sửa 'id: 1' thành 'config_id: 1'
-        supabase.from('app3_settings').upsert({
+         supabase.from('app3_settings').upsert({
             config_id: 1, 
             theme: APP_STATE.settings.theme
-        }).then(({ error }) => {
+        }, { onConflict: 'config_id' }).then(({ error }) => { // Bổ sung dòng onConflict
             if (error) console.warn('Không thể lưu theme:', error);
         });
     });
