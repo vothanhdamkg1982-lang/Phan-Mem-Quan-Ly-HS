@@ -7,7 +7,14 @@
  * Giáo viên: Võ Thanh Đậm
  * Khối: 3, 4, 5
  * ============================================================
+ * Chuyển đổi từ localStorage sang Supabase
+ * - Database: app3_* tables
+ * - Storage: app3-files bucket
+ * - Auth: Supabase Auth
+ * ============================================================
  */
+import { supabase } from './supabase.js';
+import { migrateLocalStorageToSupabase } from './migration.js';
 
 // ============================================================
 // 0. AVATAR MẶC ĐỊNH (BASE64)
@@ -36,188 +43,204 @@ const APP_STATE = {
     selectedStudents: [],
     currentStudentId: null,
     darkMode: false,
-    currentSubject: 'Tin học'
+    currentSubject: 'Tin học',
+    // classMap để map tên lớp với id
+    classMap: {}
 };
 
 const SUBJECTS = ['Tin học', 'Công nghệ'];
 
-// Tạo dữ liệu mẫu cho học sinh (khối 3,4,5)
-function generateSampleStudents() {
-    const firstNames = ['Nguyễn', 'Trần', 'Lê', 'Phạm', 'Hoàng', 'Vũ', 'Đặng', 'Bùi', 'Đỗ', 'Hồ', 'Ngô', 'Dương', 'Lý', 'Vương'];
-    const lastNames = ['Anh', 'Bình', 'Chi', 'Dũng', 'Giang', 'Hà', 'Hùng', 'Hương', 'Khoa', 'Linh', 'Mai', 'Nam', 'Phương', 'Quân', 'Sơn', 'Tâm', 'Thảo', 'Thắng', 'Thu', 'Trang', 'Tuấn', 'Vân', 'Việt', 'Xuân', 'Yến'];
-    const genders = ['Nam', 'Nữ'];
-    const classNames = [];
-    for (let g = 3; g <= 5; g++) {
-        classNames.push(`${g}B1`, `${g}B2`, `${g}C`);
-    }
-    const statuses = ['Đang học', 'Đã chuyển', 'Đã tốt nghiệp', 'Bảo lưu'];
-    const students = [];
-
-    for (let i = 1; i <= 50; i++) {
-        const firstName = firstNames[Math.floor(Math.random() * firstNames.length)];
-        const lastName = lastNames[Math.floor(Math.random() * lastNames.length)];
-        const gender = genders[Math.floor(Math.random() * genders.length)];
-        const cls = classNames[Math.floor(Math.random() * classNames.length)];
-        const grade = cls.charAt(0);
-        const birthYear = 2014 + Math.floor(Math.random() * 4);
-        const birth = new Date(birthYear, Math.floor(Math.random() * 12), 1 + Math.floor(Math.random() * 28));
-        const dob = birth.toISOString().split('T')[0];
-        const status = statuses[Math.floor(Math.random() * statuses.length)];
-
-        students.push({
-            id: `HS${String(10000 + i).padStart(5, '0')}`,
-            firstName: firstName,
-            lastName: lastName,
-            fullName: firstName + ' ' + lastName,
-            dob: dob,
-            gender: gender,
-            address: `${Math.floor(Math.random() * 100) + 1} Đường ${['Lê Lợi', 'Nguyễn Huệ', 'Trần Hưng Đạo', 'Phạm Ngũ Lão', 'Hai Bà Trưng', 'Lý Tự Trọng'][Math.floor(Math.random() * 6)]}, Khu phố ${Math.floor(Math.random() * 5) + 1}, Đặc khu Kiên Hải`,
-            phone: `09${String(10000000 + Math.floor(Math.random() * 90000000)).slice(0, 8)}`,
-            email: `student${i}@gmail.com`,
-            class: cls,
-            grade: grade,
-            fatherName: firstNames[Math.floor(Math.random() * firstNames.length)] + ' ' + lastNames[Math.floor(Math.random() * lastNames.length)],
-            motherName: firstNames[Math.floor(Math.random() * firstNames.length)] + ' ' + lastNames[Math.floor(Math.random() * lastNames.length)],
-            parentPhone: `09${String(10000000 + Math.floor(Math.random() * 90000000)).slice(0, 8)}`,
-            competence: '', // trống
-            quality: '',    // trống
-            enrollmentDate: new Date(2024, Math.floor(Math.random() * 12), 1 + Math.floor(Math.random() * 28)).toISOString().split('T')[0],
-            status: status,
-            note: '',
-            avatar: DEFAULT_AVATAR
-        });
-    }
-    return students;
-}
-
 // ============================================================
-// 2. KHỞI TẠO DỮ LIỆU
+// 2. FUNCTIONS TẢI DỮ LIỆU TỪ SUPABASE
 // ============================================================
-function initData() {
-    // --- Học sinh ---
-    let students = JSON.parse(localStorage.getItem('students'));
-    if (!students || students.length === 0) {
-        students = generateSampleStudents();
-        localStorage.setItem('students', JSON.stringify(students));
-    }
-    students = students.map(s => {
-        if (!s.avatar || s.avatar === 'images/avatar-default.png') {
-            s.avatar = DEFAULT_AVATAR;
-        }
-        return s;
-    });
-    APP_STATE.students = students;
-    localStorage.setItem('students', JSON.stringify(students));
 
-    // --- Lớp ---
-    let classes = JSON.parse(localStorage.getItem('classes'));
-    if (!classes) {
-        const classSet = new Set(students.map(s => s.class));
-        classes = Array.from(classSet).map(name => {
-            const grade = name.charAt(0);
-            return {
-                id: 'L' + name,
-                name: name,
-                grade: grade,
-                teacher: 'Võ Thanh Đậm',
-                count: 0,
-                male: 0,
-                female: 0
+/**
+ * Tải toàn bộ dữ liệu từ Supabase và cập nhật APP_STATE
+ */
+async function loadAllData() {
+    showLoading();
+    try {
+        // 1. Tải classes
+        const { data: classes, error: classErr } = await supabase
+            .from('app3_classes')
+            .select('*')
+            .order('name');
+        if (classErr) throw classErr;
+        APP_STATE.classes = classes || [];
+        // Xây dựng classMap
+        APP_STATE.classMap = {};
+        APP_STATE.classes.forEach(c => { APP_STATE.classMap[c.name] = c.id; });
+
+        // 2. Tải students (kèm class name để hiển thị)
+        const { data: students, error: studentErr } = await supabase
+            .from('app3_students')
+            .select('*, app3_classes(name)')
+            .order('full_name');
+        if (studentErr) throw studentErr;
+        // Chuyển đổi để có trường class (tên) thay vì class_id
+        APP_STATE.students = (students || []).map(s => ({
+            ...s,
+            class: s.app3_classes?.name || '',
+            // giữ lại các trường cũ để tương thích
+            id: s.student_code,
+            fullName: s.full_name,
+            dob: s.dob,
+            gender: s.gender,
+            address: s.address,
+            phone: s.phone,
+            email: s.email,
+            fatherName: s.father_name,
+            motherName: s.mother_name,
+            parentPhone: s.parent_phone,
+            competence: s.competence,
+            quality: s.quality,
+            enrollmentDate: s.enrollment_date,
+            status: s.status,
+            note: s.note,
+            avatar: s.avatar_url || DEFAULT_AVATAR,
+            grade: s.grade,
+            // lưu class_id để dùng sau
+            class_id: s.class_id
+        }));
+
+        // 3. Tải scores (dạng flat)
+        const { data: scoresData, error: scoreErr } = await supabase
+            .from('app3_scores')
+            .select('*');
+        if (scoreErr) throw scoreErr;
+        // Chuyển đổi về dạng object: { studentId: { subject: { ... } } }
+        APP_STATE.scores = {};
+        (scoresData || []).forEach(rec => {
+            const studentId = rec.student_id;
+            if (!APP_STATE.scores[studentId]) APP_STATE.scores[studentId] = {};
+            // Lấy subject từ rec (VD: 'Tin học')
+            const subject = rec.subject;
+            APP_STATE.scores[studentId][subject] = {
+                giuaKy1: rec.giua_ky_1 || '',
+                cuoiKy1: rec.cuoi_ky_1 !== null ? rec.cuoi_ky_1 : null,
+                giuaKy2: rec.giua_ky_2 || '',
+                cuoiKy2: rec.cuoi_ky_2 !== null ? rec.cuoi_ky_2 : null
             };
         });
-        localStorage.setItem('classes', JSON.stringify(classes));
-    }
-    APP_STATE.classes = classes;
-    updateClassCounts();
 
-    // --- Điểm (cấu trúc mới: object theo môn) ---
-    let scores = JSON.parse(localStorage.getItem('scores'));
-    if (!scores || Array.isArray(scores)) {
-        const oldScores = scores || [];
-        const newScores = {};
-        APP_STATE.students.forEach(student => {
-            const old = oldScores.find(sc => sc.studentId === student.id);
-            if (old) {
-                newScores[student.id] = {
-                    'Tin học': {
-                        giuaKy1: old.giuaKy1 || '',
-                        cuoiKy1: old.cuoiKy1 !== undefined ? old.cuoiKy1 : null,
-                        giuaKy2: old.giuaKy2 || '',
-                        cuoiKy2: old.cuoiKy2 !== undefined ? old.cuoiKy2 : null
-                    },
-                    'Công nghệ': {
-                        giuaKy1: '',
-                        cuoiKy1: null,
-                        giuaKy2: '',
-                        cuoiKy2: null
-                    }
+        // 4. Tải attendance
+        const { data: attendance, error: attErr } = await supabase
+            .from('app3_attendance')
+            .select('*');
+        if (attErr) throw attErr;
+        // Chuyển đổi sang cấu trúc cũ: [{ date, class, records: [{studentId, status}] }]
+        APP_STATE.attendance = [];
+        const attMap = {};
+        (attendance || []).forEach(rec => {
+            const key = `${rec.attendance_date}_${rec.class_id}`;
+            if (!attMap[key]) {
+                attMap[key] = {
+                    date: rec.attendance_date,
+                    class: APP_STATE.classes.find(c => c.id === rec.class_id)?.name || '',
+                    class_id: rec.class_id,
+                    records: []
                 };
-                if (old.competence) student.competence = old.competence;
-                if (old.quality) student.quality = old.quality;
-            } else {
-                newScores[student.id] = {
-                    'Tin học': { giuaKy1: '', cuoiKy1: null, giuaKy2: '', cuoiKy2: null },
-                    'Công nghệ': { giuaKy1: '', cuoiKy1: null, giuaKy2: '', cuoiKy2: null }
-                };
+                APP_STATE.attendance.push(attMap[key]);
             }
+            attMap[key].records.push({
+                studentId: rec.student_id,
+                status: rec.status
+            });
         });
-        scores = newScores;
-        localStorage.setItem('scores', JSON.stringify(scores));
-        localStorage.setItem('students', JSON.stringify(APP_STATE.students));
-    }
-    APP_STATE.scores = scores;
 
-    // --- Các dữ liệu khác ---
-    if (!localStorage.getItem('attendance')) localStorage.setItem('attendance', JSON.stringify([]));
-    if (!localStorage.getItem('rewards')) {
-        localStorage.setItem('rewards', JSON.stringify(generateSampleRewards()));
-    }
-    if (!localStorage.getItem('disciplines')) {
-        localStorage.setItem('disciplines', JSON.stringify(generateSampleDisciplines()));
-    }
+        // 5. Tải rewards
+        const { data: rewards, error: rewErr } = await supabase
+            .from('app3_rewards')
+            .select('*')
+            .order('date', { ascending: false });
+        if (rewErr) throw rewErr;
+        APP_STATE.rewards = (rewards || []).map(r => ({
+            id: r.id,
+            studentId: r.student_id,
+            date: r.date,
+            content: r.content,
+            decisionBy: r.decision_by
+        }));
 
-    // --- FILE: kiểm tra và sửa dữ liệu ---
-    let filesData = localStorage.getItem('files');
-    if (filesData) {
-        try {
-            const parsed = JSON.parse(filesData);
-            if (!Array.isArray(parsed)) {
-                throw new Error('Files data is not an array');
-            }
-            APP_STATE.files = parsed.filter(f => f && f.id && f.name);
-        } catch (e) {
-            console.warn('Files data corrupted, resetting...', e);
-            APP_STATE.files = [];
+        // 6. Tải disciplines
+        const { data: disciplines, error: discErr } = await supabase
+            .from('app3_disciplines')
+            .select('*')
+            .order('date', { ascending: false });
+        if (discErr) throw discErr;
+        APP_STATE.disciplines = (disciplines || []).map(d => ({
+            id: d.id,
+            studentId: d.student_id,
+            date: d.date,
+            content: d.content,
+            decisionBy: d.decision_by
+        }));
+
+        // 7. Tải files (metadata)
+        const { data: files, error: fileErr } = await supabase
+            .from('app3_files')
+            .select('*')
+            .order('created_at', { ascending: false });
+        if (fileErr) throw fileErr;
+        APP_STATE.files = (files || []).map(f => ({
+            id: f.id,
+            name: f.file_name,
+            type: f.file_type,
+            size: f.file_size,
+            uploadDate: f.created_at,
+            desc: f.description,
+            path: f.file_path,
+            url: f.file_url
+        }));
+
+        // 8. Tải settings
+        const { data: settings, error: setErr } = await supabase
+            .from('app3_settings')
+            .select('*')
+            .limit(1)
+            .maybeSingle();
+        if (setErr) throw setErr;
+        if (settings) {
+            APP_STATE.settings = {
+                schoolName: settings.school_name || APP_STATE.settings.schoolName,
+                schoolYear: settings.school_year || APP_STATE.settings.schoolYear,
+                teacherName: settings.teacher_name || APP_STATE.settings.teacherName,
+                theme: settings.theme || 'light',
+                logo: settings.logo_url || ''
+            };
         }
-    } else {
-        APP_STATE.files = [];
-    }
-    localStorage.setItem('files', JSON.stringify(APP_STATE.files));
 
-    if (!localStorage.getItem('settings')) {
-        localStorage.setItem('settings', JSON.stringify(APP_STATE.settings));
-    }
-    APP_STATE.attendance = JSON.parse(localStorage.getItem('attendance'));
-    APP_STATE.rewards = JSON.parse(localStorage.getItem('rewards'));
-    APP_STATE.disciplines = JSON.parse(localStorage.getItem('disciplines'));
-    APP_STATE.settings = JSON.parse(localStorage.getItem('settings'));
+        // Cập nhật dark mode nếu có
+        if (APP_STATE.settings.theme === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+            APP_STATE.darkMode = true;
+        } else {
+            document.documentElement.removeAttribute('data-theme');
+            APP_STATE.darkMode = false;
+        }
 
-    if (APP_STATE.settings.theme === 'dark') {
-        document.documentElement.setAttribute('data-theme', 'dark');
-        APP_STATE.darkMode = true;
+        // Cập nhật class counts (không cần lưu xuống DB, chỉ tính để hiển thị)
+        updateClassCounts();
+
+        console.log('Đã tải dữ liệu từ Supabase thành công!');
+    } catch (err) {
+        console.error('Lỗi tải dữ liệu:', err);
+        showToast('Không thể tải dữ liệu từ Supabase. Vui lòng kiểm tra kết nối.', 'error');
+    } finally {
+        hideLoading();
     }
 }
 
+/**
+ * Tính sĩ số, nam/nữ cho các lớp (chỉ để hiển thị, không lưu DB)
+ */
 function updateClassCounts() {
-    const classes = APP_STATE.classes;
-    const students = APP_STATE.students;
-    classes.forEach(cls => {
-        const list = students.filter(s => s.class === cls.name);
+    APP_STATE.classes.forEach(cls => {
+        const list = APP_STATE.students.filter(s => s.class_id === cls.id);
         cls.count = list.length;
         cls.male = list.filter(s => s.gender === 'Nam').length;
         cls.female = list.filter(s => s.gender === 'Nữ').length;
     });
-    localStorage.setItem('classes', JSON.stringify(classes));
 }
 
 // ============================================================
@@ -226,9 +249,7 @@ function updateClassCounts() {
 function formatDate(dateStr) {
     if (!dateStr) return '';
     const d = new Date(dateStr);
-    if (isNaN(d.getTime())) {
-        return '';
-    }
+    if (isNaN(d.getTime())) return '';
     return `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()}`;
 }
 
@@ -308,7 +329,7 @@ function showLoading() { document.getElementById('loadingOverlay').classList.rem
 function hideLoading() { document.getElementById('loadingOverlay').classList.add('hidden'); }
 
 // ============================================================
-// 4. RENDER PAGES
+// 4. RENDER PAGES (giữ nguyên, không thay đổi UI)
 // ============================================================
 function renderPage(page) {
     APP_STATE.currentPage = page;
@@ -358,7 +379,7 @@ function getPageTitle(page) {
 }
 
 // ============================================================
-// 5. DASHBOARD & CHARTS
+// 5. DASHBOARD & CHARTS (dùng dữ liệu từ APP_STATE)
 // ============================================================
 function renderDashboard() {
     const students = APP_STATE.students;
@@ -439,6 +460,7 @@ const STUDENT_PAGE_SIZE = 10;
 let studentSort = { field: 'fullName', order: 'asc' };
 
 function renderStudents() {
+    // Giữ nguyên HTML như cũ (không thay đổi)
     return `
         <div class="card">
             <div class="flex-between mb-2">
@@ -606,7 +628,7 @@ function toggleSelectAll() {
 }
 
 // ============================================================
-// 7. CÁC HÀM XỬ LÝ AVATAR VÀ THÊM/SỬA HỌC SINH
+// 7. CÁC HÀM XỬ LÝ AVATAR VÀ THÊM/SỬA HỌC SINH (có dùng Supabase)
 // ============================================================
 function resizeImage(dataUrl, maxWidth = 200, maxHeight = 200, quality = 0.7) {
     return new Promise((resolve) => {
@@ -736,6 +758,116 @@ function getStudentFormData() {
     };
 }
 
+// Hàm upload ảnh lên storage và trả về URL công khai
+async function uploadAvatar(file, studentCode) {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${studentCode}_${Date.now()}.${fileExt}`;
+    const filePath = `students/${studentCode}/avatar/${fileName}`;
+
+    const { data, error } = await supabase.storage
+        .from('app3-files')
+        .upload(filePath, file, {
+            cacheControl: '3600',
+            upsert: true
+        });
+    if (error) throw error;
+
+    // Lấy URL công khai (bucket đã public)
+    const { data: urlData } = supabase.storage
+        .from('app3-files')
+        .getPublicUrl(filePath);
+    return urlData.publicUrl;
+}
+
+// Hàm thêm học sinh (có upload avatar)
+async function addStudentToSupabase(data, avatarFile) {
+    const classObj = APP_STATE.classes.find(c => c.name === data.class);
+    const classId = classObj ? classObj.id : null;
+
+    const maxCode = APP_STATE.students.reduce((max, s) => {
+        const num = parseInt(s.id.replace('HS', ''));
+        return num > max ? num : max;
+    }, 10000);
+    const studentCode = `HS${String(maxCode + 1).padStart(5, '0')}`;
+
+    // Xử lý avatar: luôn chuyển sang Base64
+    let avatarUrl = DEFAULT_AVATAR;
+    if (avatarFile) {
+        try {
+            const reader = new FileReader();
+            const base64 = await new Promise((resolve) => {
+                reader.onload = (e) => resolve(e.target.result);
+                reader.readAsDataURL(avatarFile);
+            });
+            // Resize để giảm dung lượng (tối đa 200x200)
+            const resized = await resizeImage(base64, 200, 200, 0.7);
+            avatarUrl = resized;
+        } catch (err) {
+            console.warn('Lỗi xử lý ảnh:', err);
+            // Giữ DEFAULT_AVATAR
+        }
+    }
+
+    const studentData = {
+        student_code: studentCode,
+        full_name: data.fullName,
+        dob: data.dob || null,
+        gender: data.gender,
+        address: data.address,
+        phone: data.phone,
+        email: data.email,
+        class_id: classId,
+        grade: data.grade,
+        father_name: data.fatherName,
+        mother_name: data.motherName,
+        parent_phone: data.parentPhone,
+        competence: data.competence,
+        quality: data.quality,
+        enrollment_date: data.enrollmentDate || null,
+        status: data.status || 'Đang học',
+        note: data.note,
+        avatar_url: avatarUrl   // Lưu Base64
+    };
+
+    const { data: inserted, error } = await supabase
+        .from('app3_students')
+        .insert([studentData])
+        .select()
+        .single();
+
+    if (error) throw error;
+
+    const newStudent = {
+        ...inserted,
+        id: inserted.student_code,
+        fullName: inserted.full_name,
+        dob: inserted.dob,
+        gender: inserted.gender,
+        address: inserted.address,
+        phone: inserted.phone,
+        email: inserted.email,
+        fatherName: inserted.father_name,
+        motherName: inserted.mother_name,
+        parentPhone: inserted.parent_phone,
+        competence: inserted.competence,
+        quality: inserted.quality,
+        enrollmentDate: inserted.enrollment_date,
+        status: inserted.status,
+        note: inserted.note,
+        avatar: inserted.avatar_url || DEFAULT_AVATAR,
+        grade: inserted.grade,
+        class: data.class,
+        class_id: inserted.class_id
+    };
+    APP_STATE.students.push(newStudent);
+    APP_STATE.scores[newStudent.id] = {};
+    SUBJECTS.forEach(sub => {
+        APP_STATE.scores[newStudent.id][sub] = { giuaKy1: '', cuoiKy1: null, giuaKy2: '', cuoiKy2: null };
+    });
+    updateClassCounts();
+    return newStudent;
+}
+
 function openAddStudent() {
     showModal('Thêm học sinh', getStudentFormHTML(null, true), 'Thêm', 'Hủy').then(async confirmed => {
         if (confirmed) {
@@ -744,25 +876,103 @@ function openAddStudent() {
                 showToast('Vui lòng điền đầy đủ thông tin!', 'error');
                 return;
             }
-            data.id = `HS${String(10000 + APP_STATE.students.length + 1).padStart(5, '0')}`;
-            const preview = document.getElementById('sfAvatarPreview');
-            if (preview && preview.src && preview.src.startsWith('data:image')) {
-                data.avatar = preview.src;
-            } else {
-                data.avatar = DEFAULT_AVATAR;
+            // Lấy file avatar
+            const avatarInput = document.getElementById('sfAvatarInput');
+            const avatarFile = avatarInput && avatarInput.files.length ? avatarInput.files[0] : null;
+
+            try {
+                await addStudentToSupabase(data, avatarFile);
+                showToast('Thêm học sinh thành công!');
+                renderPage('students');
+            } catch (err) {
+                showToast('Lỗi khi thêm học sinh: ' + err.message, 'error');
             }
-            APP_STATE.students.push(data);
-            APP_STATE.scores[data.id] = {};
-            SUBJECTS.forEach(sub => {
-                APP_STATE.scores[data.id][sub] = { giuaKy1: '', cuoiKy1: null, giuaKy2: '', cuoiKy2: null };
-            });
-            localStorage.setItem('students', JSON.stringify(APP_STATE.students));
-            localStorage.setItem('scores', JSON.stringify(APP_STATE.scores));
-            updateClassCounts();
-            showToast('Thêm học sinh thành công!');
-            renderPage('students');
         }
     });
+}
+
+// Hàm sửa học sinh
+async function updateStudentInSupabase(id, data, avatarFile) {
+    const existing = APP_STATE.students.find(s => s.id === id);
+    if (!existing) throw new Error('Không tìm thấy học sinh');
+
+    const classObj = APP_STATE.classes.find(c => c.name === data.class);
+    const classId = classObj ? classObj.id : null;
+
+    // Mặc định giữ avatar cũ
+    let avatarUrl = existing.avatar;
+
+    // Nếu có file mới, chuyển sang Base64
+    if (avatarFile) {
+        try {
+            const reader = new FileReader();
+            const base64 = await new Promise((resolve) => {
+                reader.onload = (e) => resolve(e.target.result);
+                reader.readAsDataURL(avatarFile);
+            });
+            const resized = await resizeImage(base64, 200, 200, 0.7);
+            avatarUrl = resized;
+        } catch (err) {
+            console.warn('Lỗi xử lý ảnh mới:', err);
+            // Nếu lỗi, giữ avatar cũ
+        }
+    } else {
+        // Không có file mới: giữ nguyên avatar cũ, nếu cũ là null/undefined thì dùng default
+        if (!avatarUrl || avatarUrl === DEFAULT_AVATAR) {
+            avatarUrl = DEFAULT_AVATAR;
+        }
+    }
+
+    const updateData = {
+        full_name: data.fullName,
+        dob: data.dob || null,
+        gender: data.gender,
+        address: data.address,
+        phone: data.phone,
+        email: data.email,
+        class_id: classId,
+        grade: data.grade,
+        father_name: data.fatherName,
+        mother_name: data.motherName,
+        parent_phone: data.parentPhone,
+        competence: data.competence,
+        quality: data.quality,
+        enrollment_date: data.enrollmentDate || null,
+        status: data.status || 'Đang học',
+        note: data.note,
+        avatar_url: avatarUrl   // Lưu Base64
+    };
+
+    const { error } = await supabase
+        .from('app3_students')
+        .update(updateData)
+        .eq('student_code', id);
+
+    if (error) throw error;
+
+    // Cập nhật APP_STATE
+    Object.assign(existing, {
+        fullName: data.fullName,
+        dob: data.dob,
+        gender: data.gender,
+        address: data.address,
+        phone: data.phone,
+        email: data.email,
+        fatherName: data.fatherName,
+        motherName: data.motherName,
+        parentPhone: data.parentPhone,
+        competence: data.competence,
+        quality: data.quality,
+        enrollmentDate: data.enrollmentDate,
+        status: data.status,
+        note: data.note,
+        avatar: avatarUrl,
+        grade: data.grade,
+        class: data.class,
+        class_id: classId
+    });
+    updateClassCounts();
+    return existing;
 }
 
 function editStudent(id) {
@@ -775,15 +985,16 @@ function editStudent(id) {
                 showToast('Vui lòng điền đầy đủ thông tin!', 'error');
                 return;
             }
-            const preview = document.getElementById('sfAvatarPreview');
-            if (preview && preview.src && preview.src.startsWith('data:image')) {
-                student.avatar = preview.src;
+            const avatarInput = document.getElementById('sfAvatarInput');
+            const avatarFile = avatarInput && avatarInput.files.length ? avatarInput.files[0] : null;
+
+            try {
+                await updateStudentInSupabase(id, data, avatarFile);
+                showToast('Cập nhật thành công!');
+                renderPage('students');
+            } catch (err) {
+                showToast('Lỗi cập nhật: ' + err.message, 'error');
             }
-            Object.assign(student, data);
-            localStorage.setItem('students', JSON.stringify(APP_STATE.students));
-            updateClassCounts();
-            showToast('Cập nhật thành công!');
-            renderPage('students');
         }
     });
 }
@@ -843,16 +1054,28 @@ function downloadAvatar(studentId) {
 }
 
 async function deleteStudent(id) {
-    const confirmed = await showModal('Xóa học sinh', `Bạn có chắc muốn xóa học sinh <strong>${APP_STATE.students.find(s => s.id === id)?.fullName}</strong>?`, 'Xóa', 'Hủy');
+    const student = APP_STATE.students.find(s => s.id === id);
+    if (!student) return;
+    const confirmed = await showModal('Xóa học sinh', `Bạn có chắc muốn xóa học sinh <strong>${student.fullName}</strong>?`, 'Xóa', 'Hủy');
     if (confirmed) {
-        APP_STATE.students = APP_STATE.students.filter(s => s.id !== id);
-        APP_STATE.selectedStudents = APP_STATE.selectedStudents.filter(sid => sid !== id);
-        delete APP_STATE.scores[id];
-        localStorage.setItem('students', JSON.stringify(APP_STATE.students));
-        localStorage.setItem('scores', JSON.stringify(APP_STATE.scores));
-        updateClassCounts();
-        showToast('Đã xóa học sinh!', 'warning');
-        renderPage('students');
+        try {
+            // Xóa trong DB
+            const { error } = await supabase
+                .from('app3_students')
+                .delete()
+                .eq('student_code', id);
+            if (error) throw error;
+
+            // Xóa trong APP_STATE
+            APP_STATE.students = APP_STATE.students.filter(s => s.id !== id);
+            APP_STATE.selectedStudents = APP_STATE.selectedStudents.filter(sid => sid !== id);
+            delete APP_STATE.scores[id];
+            updateClassCounts();
+            showToast('Đã xóa học sinh!', 'warning');
+            renderPage('students');
+        } catch (err) {
+            showToast('Lỗi xóa: ' + err.message, 'error');
+        }
     }
 }
 
@@ -863,19 +1086,29 @@ async function deleteSelectedStudents() {
     }
     const confirmed = await showModal('Xóa nhiều học sinh', `Bạn có chắc muốn xóa <strong>${APP_STATE.selectedStudents.length}</strong> học sinh?`, 'Xóa tất cả', 'Hủy');
     if (confirmed) {
-        APP_STATE.students = APP_STATE.students.filter(s => !APP_STATE.selectedStudents.includes(s.id));
-        APP_STATE.selectedStudents.forEach(id => delete APP_STATE.scores[id]);
-        APP_STATE.selectedStudents = [];
-        localStorage.setItem('students', JSON.stringify(APP_STATE.students));
-        localStorage.setItem('scores', JSON.stringify(APP_STATE.scores));
-        updateClassCounts();
-        showToast('Đã xóa các học sinh đã chọn!', 'warning');
-        renderPage('students');
+        try {
+            const ids = APP_STATE.selectedStudents;
+            // Xóa trong DB
+            const { error } = await supabase
+                .from('app3_students')
+                .delete()
+                .in('student_code', ids);
+            if (error) throw error;
+
+            APP_STATE.students = APP_STATE.students.filter(s => !ids.includes(s.id));
+            ids.forEach(id => delete APP_STATE.scores[id]);
+            APP_STATE.selectedStudents = [];
+            updateClassCounts();
+            showToast('Đã xóa các học sinh đã chọn!', 'warning');
+            renderPage('students');
+        } catch (err) {
+            showToast('Lỗi xóa: ' + err.message, 'error');
+        }
     }
 }
 
 // ============================================================
-// 8. IMPORT / EXPORT EXCEL (học sinh)
+// 8. IMPORT / EXPORT EXCEL (học sinh) - vẫn dùng dữ liệu APP_STATE
 // ============================================================
 function exportExcel() {
     const data = APP_STATE.students.map(s => ({
@@ -953,7 +1186,7 @@ function importExcel(event) {
     const file = event.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = function(e) {
+    reader.onload = async function(e) {
         try {
             const data = new Uint8Array(e.target.result);
             const workbook = XLSX.read(data, { type: 'array' });
@@ -962,9 +1195,8 @@ function importExcel(event) {
             let imported = 0;
             let errors = 0;
             const newStudents = [];
-            const classNames = new Set(APP_STATE.classes.map(c => c.name));
 
-            rows.forEach((row, index) => {
+            for (const row of rows) {
                 const fullName = row['Họ tên'] || row['Họ và tên'] || '';
                 const dobRaw = row['Ngày sinh'] || '';
                 const gender = row['Giới tính'] || '';
@@ -984,9 +1216,10 @@ function importExcel(event) {
 
                 if (!fullName || !gender || !cls) {
                     errors++;
-                    return;
+                    continue;
                 }
 
+                // Xử lý ngày sinh
                 let dob = '';
                 if (dobRaw) {
                     if (typeof dobRaw === 'number') {
@@ -1032,55 +1265,120 @@ function importExcel(event) {
                     }
                 }
 
-                const newStudent = {
-                    id: `HS${String(10000 + APP_STATE.students.length + newStudents.length + 1).padStart(5, '0')}`,
-                    fullName: fullName.trim(),
+                // Tạo student code mới
+                const maxCode = APP_STATE.students.reduce((max, s) => {
+                    const num = parseInt(s.id.replace('HS', ''));
+                    return num > max ? num : max;
+                }, 10000);
+                const studentCode = `HS${String(maxCode + newStudents.length + 1).padStart(5, '0')}`;
+
+                // Tìm class_id
+                const classObj = APP_STATE.classes.find(c => c.name === cls);
+                let classId = classObj ? classObj.id : null;
+                if (!classObj) {
+                    // Tạo lớp mới nếu chưa có
+                    const newClass = {
+                        name: cls,
+                        grade: grade || cls.charAt(0),
+                        teacher: 'Võ Thanh Đậm',
+                        class_code: 'L' + cls
+                    };
+                    const { data: insertedClass, error: classErr } = await supabase
+                        .from('app3_classes')
+                        .insert([newClass])
+                        .select()
+                        .single();
+                    if (!classErr && insertedClass) {
+                        APP_STATE.classes.push(insertedClass);
+                        APP_STATE.classMap[insertedClass.name] = insertedClass.id;
+                        classId = insertedClass.id;
+                    }
+                }
+
+                newStudents.push({
+                    student_code: studentCode,
+                    full_name: fullName.trim(),
                     dob: dob,
                     gender: gender.trim(),
-                    class: cls.trim(),
+                    class_id: classId,
                     grade: grade || cls.trim().charAt(0),
                     address: address.trim(),
                     phone: phone.trim(),
                     email: email.trim(),
-                    fatherName: fatherName.trim(),
-                    motherName: motherName.trim(),
-                    parentPhone: parentPhone.trim(),
+                    father_name: fatherName.trim(),
+                    mother_name: motherName.trim(),
+                    parent_phone: parentPhone.trim(),
                     status: status.trim(),
                     note: note.trim(),
                     competence: competence.trim(),
                     quality: quality.trim(),
-                    enrollmentDate: enrollmentDate || new Date().toISOString().split('T')[0],
-                    avatar: DEFAULT_AVATAR
-                };
-
-                if (!classNames.has(newStudent.class)) {
-                    APP_STATE.classes.push({
-                        id: 'L' + newStudent.class,
-                        name: newStudent.class,
-                        grade: newStudent.grade,
-                        teacher: 'Võ Thanh Đậm',
-                        count: 0,
-                        male: 0,
-                        female: 0
-                    });
-                    classNames.add(newStudent.class);
-                }
-
-                newStudents.push(newStudent);
+                    enrollment_date: enrollmentDate || new Date().toISOString().split('T')[0],
+                    avatar_url: DEFAULT_AVATAR,
+                    // Thêm các trường để hiển thị
+                    class: cls,
+                    fullName: fullName.trim(),
+                    id: studentCode
+                });
                 imported++;
-            });
+            }
 
             if (newStudents.length > 0) {
-                APP_STATE.students.push(...newStudents);
-                newStudents.forEach(st => {
-                    APP_STATE.scores[st.id] = {};
+                // Insert batch vào Supabase
+                const { data: inserted, error: insertErr } = await supabase
+                    .from('app3_students')
+                    .insert(newStudents.map(s => ({
+                        student_code: s.student_code,
+                        full_name: s.full_name,
+                        dob: s.dob,
+                        gender: s.gender,
+                        class_id: s.class_id,
+                        grade: s.grade,
+                        address: s.address,
+                        phone: s.phone,
+                        email: s.email,
+                        father_name: s.father_name,
+                        mother_name: s.mother_name,
+                        parent_phone: s.parent_phone,
+                        status: s.status,
+                        note: s.note,
+                        competence: s.competence,
+                        quality: s.quality,
+                        enrollment_date: s.enrollment_date,
+                        avatar_url: s.avatar_url
+                    })))
+                    .select();
+                if (insertErr) throw insertErr;
+
+                // Cập nhật APP_STATE
+                inserted.forEach(st => {
+                    const newStudent = {
+                        ...st,
+                        id: st.student_code,
+                        fullName: st.full_name,
+                        dob: st.dob,
+                        gender: st.gender,
+                        address: st.address,
+                        phone: st.phone,
+                        email: st.email,
+                        fatherName: st.father_name,
+                        motherName: st.mother_name,
+                        parentPhone: st.parent_phone,
+                        competence: st.competence,
+                        quality: st.quality,
+                        enrollmentDate: st.enrollment_date,
+                        status: st.status,
+                        note: st.note,
+                        avatar: st.avatar_url || DEFAULT_AVATAR,
+                        grade: st.grade,
+                        class: APP_STATE.classes.find(c => c.id === st.class_id)?.name || '',
+                        class_id: st.class_id
+                    };
+                    APP_STATE.students.push(newStudent);
+                    APP_STATE.scores[newStudent.id] = {};
                     SUBJECTS.forEach(sub => {
-                        APP_STATE.scores[st.id][sub] = { giuaKy1: '', cuoiKy1: null, giuaKy2: '', cuoiKy2: null };
+                        APP_STATE.scores[newStudent.id][sub] = { giuaKy1: '', cuoiKy1: null, giuaKy2: '', cuoiKy2: null };
                     });
                 });
-                localStorage.setItem('students', JSON.stringify(APP_STATE.students));
-                localStorage.setItem('scores', JSON.stringify(APP_STATE.scores));
-                localStorage.setItem('classes', JSON.stringify(APP_STATE.classes));
                 updateClassCounts();
                 showToast(`Import thành công ${imported} học sinh. ${errors > 0 ? 'Có ' + errors + ' dòng bị lỗi (thiếu thông tin).' : ''}`);
             } else {
@@ -1096,7 +1394,7 @@ function importExcel(event) {
 }
 
 // ============================================================
-// 9. QUẢN LÝ LỚP
+// 9. QUẢN LÝ LỚP (CRUD với Supabase)
 // ============================================================
 function renderClasses() {
     const classOptions = APP_STATE.classes.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
@@ -1155,7 +1453,7 @@ function openAddClass() {
             <div class="form-group"><label>Khối *</label><select id="cfGrade"><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
             <div class="form-group"><label>Giáo viên chủ nhiệm</label><input type="text" id="cfTeacher" placeholder="Võ Thanh Đậm" value="Võ Thanh Đậm"></div>
         </div>
-    `, 'Thêm', 'Hủy').then(confirmed => {
+    `, 'Thêm', 'Hủy').then(async confirmed => {
         if (confirmed) {
             const name = document.getElementById('cfName').value.trim();
             const grade = document.getElementById('cfGrade').value;
@@ -1164,10 +1462,26 @@ function openAddClass() {
             if (APP_STATE.classes.some(c => c.name === name)) {
                 showToast('Lớp đã tồn tại!', 'error'); return;
             }
-            APP_STATE.classes.push({ id: 'L' + Date.now().toString(36), name, grade, teacher, count: 0, male: 0, female: 0 });
-            localStorage.setItem('classes', JSON.stringify(APP_STATE.classes));
-            showToast('Thêm lớp thành công!');
-            renderPage('classes');
+            try {
+                const { data: newClass, error } = await supabase
+                    .from('app3_classes')
+                    .insert([{
+                        class_code: 'L' + name,
+                        name: name,
+                        grade: grade,
+                        teacher: teacher
+                    }])
+                    .select()
+                    .single();
+                if (error) throw error;
+                APP_STATE.classes.push(newClass);
+                APP_STATE.classMap[newClass.name] = newClass.id;
+                updateClassCounts();
+                showToast('Thêm lớp thành công!');
+                renderPage('classes');
+            } catch (err) {
+                showToast('Lỗi thêm lớp: ' + err.message, 'error');
+            }
         }
     });
 }
@@ -1181,16 +1495,38 @@ function editClass(id) {
             <div class="form-group"><label>Khối *</label><select id="cfGrade"><option value="3" ${c.grade === '3' ? 'selected' : ''}>3</option><option value="4" ${c.grade === '4' ? 'selected' : ''}>4</option><option value="5" ${c.grade === '5' ? 'selected' : ''}>5</option></select></div>
             <div class="form-group"><label>Giáo viên chủ nhiệm</label><input type="text" id="cfTeacher" value="${c.teacher || 'Võ Thanh Đậm'}"></div>
         </div>
-    `, 'Cập nhật', 'Hủy').then(confirmed => {
+    `, 'Cập nhật', 'Hủy').then(async confirmed => {
         if (confirmed) {
             const name = document.getElementById('cfName').value.trim();
             if (!name) { showToast('Vui lòng nhập tên lớp!', 'error'); return; }
-            c.name = name;
-            c.grade = document.getElementById('cfGrade').value;
-            c.teacher = document.getElementById('cfTeacher').value.trim() || 'Võ Thanh Đậm';
-            localStorage.setItem('classes', JSON.stringify(APP_STATE.classes));
-            showToast('Cập nhật thành công!');
-            renderPage('classes');
+            try {
+                const { error } = await supabase
+                    .from('app3_classes')
+                    .update({
+                        name: name,
+                        grade: document.getElementById('cfGrade').value,
+                        teacher: document.getElementById('cfTeacher').value.trim() || 'Võ Thanh Đậm'
+                    })
+                    .eq('id', id);
+                if (error) throw error;
+                // Cập nhật APP_STATE
+                const oldName = c.name;
+                c.name = name;
+                c.grade = document.getElementById('cfGrade').value;
+                c.teacher = document.getElementById('cfTeacher').value.trim() || 'Võ Thanh Đậm';
+                // Cập nhật classMap
+                delete APP_STATE.classMap[oldName];
+                APP_STATE.classMap[name] = id;
+                // Cập nhật class của học sinh
+                APP_STATE.students.forEach(s => {
+                    if (s.class === oldName) s.class = name;
+                });
+                updateClassCounts();
+                showToast('Cập nhật thành công!');
+                renderPage('classes');
+            } catch (err) {
+                showToast('Lỗi cập nhật: ' + err.message, 'error');
+            }
         }
     });
 }
@@ -1200,12 +1536,24 @@ async function deleteClass(id) {
     if (!c) return;
     const confirmed = await showModal('Xóa lớp', `Bạn có chắc muốn xóa lớp <strong>${c.name}</strong>?`, 'Xóa', 'Hủy');
     if (confirmed) {
-        APP_STATE.classes = APP_STATE.classes.filter(cls => cls.id !== id);
-        localStorage.setItem('classes', JSON.stringify(APP_STATE.classes));
-        showToast('Đã xóa lớp!', 'warning');
-        renderPage('classes');
+        try {
+            const { error } = await supabase
+                .from('app3_classes')
+                .delete()
+                .eq('id', id);
+            if (error) throw error;
+            APP_STATE.classes = APP_STATE.classes.filter(cls => cls.id !== id);
+            delete APP_STATE.classMap[c.name];
+            updateClassCounts();
+            showToast('Đã xóa lớp!', 'warning');
+            renderPage('classes');
+        } catch (err) {
+            showToast('Lỗi xóa lớp: ' + err.message, 'error');
+        }
     }
 }
+
+// ============================================================
 // 10. QUẢN LÝ ĐIỂM (CÓ CỘT NĂNG LỰC & PHẨM CHẤT)
 // ============================================================
 function renderScores() {
@@ -1316,8 +1664,9 @@ function initScoreTable() {
     }).join('');
 }
 
-function updateScore(studentId, field, value) {
+async function updateScore(studentId, field, value) {
     const subject = APP_STATE.currentSubject;
+    // Cập nhật APP_STATE
     if (!APP_STATE.scores[studentId]) {
         APP_STATE.scores[studentId] = {};
     }
@@ -1325,28 +1674,53 @@ function updateScore(studentId, field, value) {
         APP_STATE.scores[studentId][subject] = { giuaKy1: '', cuoiKy1: null, giuaKy2: '', cuoiKy2: null };
     }
     const sc = APP_STATE.scores[studentId][subject];
+    let updateData = {};
     if (field === 'giuaKy1' || field === 'giuaKy2') {
         sc[field] = value;
+        // Cập nhật DB
+        updateData = { [field === 'giuaKy1' ? 'giua_ky_1' : 'giua_ky_2']: value };
     } else if (field === 'cuoiKy1' || field === 'cuoiKy2') {
         const num = parseFloat(value);
         sc[field] = isNaN(num) ? null : num;
+        updateData = { [field === 'cuoiKy1' ? 'cuoi_ky_1' : 'cuoi_ky_2']: isNaN(num) ? null : num };
     } else if (field === 'competence' || field === 'quality') {
         const student = APP_STATE.students.find(s => s.id === studentId);
         if (student) {
             student[field] = value;
-            localStorage.setItem('students', JSON.stringify(APP_STATE.students));
+            // Cập nhật DB student
+            const { error } = await supabase
+                .from('app3_students')
+                .update({ [field === 'competence' ? 'competence' : 'quality']: value })
+                .eq('student_code', studentId);
+            if (error) console.error('Lỗi cập nhật năng lực/phẩm chất:', error);
+        }
+        return; // đã xử lý riêng
+    }
+
+    // Cập nhật bảng scores nếu field là điểm
+    if (updateData && Object.keys(updateData).length) {
+        const { error } = await supabase
+            .from('app3_scores')
+            .upsert({
+                student_id: studentId,
+                subject: subject,
+                ...updateData
+            }, { onConflict: 'student_id,subject' });
+        if (error) {
+            showToast('Lỗi cập nhật điểm: ' + error.message, 'error');
         }
     }
-    localStorage.setItem('scores', JSON.stringify(APP_STATE.scores));
+    // Lưu vào localStorage không còn nữa
 }
 
 function saveScore(studentId) {
-    localStorage.setItem('scores', JSON.stringify(APP_STATE.scores));
+    // Đã được lưu realtime khi thay đổi, nhưng vẫn gọi để đồng bộ
     showToast('Đã lưu điểm!');
     initScoreTable();
 }
+
 // ============================================================
-// 11. ĐIỂM DANH
+// 11. ĐIỂM DANH (CRUD với Supabase)
 // ============================================================
 function renderAttendance() {
     const today = new Date().toISOString().split('T')[0];
@@ -1378,38 +1752,38 @@ function renderAttendance() {
     `;
 }
 
-function loadAttendance() {
-    const cls = document.getElementById('attendanceClass').value;
+async function loadAttendance() {
+    const clsName = document.getElementById('attendanceClass').value;
     const date = document.getElementById('attendanceDate').value;
     const wrapper = document.getElementById('attendanceTableWrapper');
-    if (!cls || !date) {
+    if (!clsName || !date) {
         wrapper.innerHTML = '<p class="text-muted">Vui lòng chọn lớp và ngày.</p>';
         return;
     }
 
-    const students = APP_STATE.students.filter(s => s.class === cls);
+    const classObj = APP_STATE.classes.find(c => c.name === clsName);
+    if (!classObj) {
+        wrapper.innerHTML = '<p class="text-muted">Lớp không tồn tại.</p>';
+        return;
+    }
+
+    const students = APP_STATE.students.filter(s => s.class === clsName);
     if (students.length === 0) {
         wrapper.innerHTML = '<p class="text-muted">Lớp này chưa có học sinh.</p>';
         return;
     }
 
-    let record = APP_STATE.attendance.find(a => a.date === date && a.class === cls);
-    if (!record) {
-        record = {
-            date: date,
-            class: cls,
-            records: students.map(s => ({ studentId: s.id, status: 'Có mặt' }))
-        };
-        APP_STATE.attendance.push(record);
-        localStorage.setItem('attendance', JSON.stringify(APP_STATE.attendance));
-    }
+    // Lấy dữ liệu điểm danh từ Supabase cho ngày và lớp này
+    const { data: records, error } = await supabase
+        .from('app3_attendance')
+        .select('*')
+        .eq('class_id', classObj.id)
+        .eq('attendance_date', date);
 
-    const existingIds = record.records.map(r => r.studentId);
-    students.forEach(s => {
-        if (!existingIds.includes(s.id)) {
-            record.records.push({ studentId: s.id, status: 'Có mặt' });
-        }
-    });
+    if (error) {
+        showToast('Lỗi tải điểm danh: ' + error.message, 'error');
+        return;
+    }
 
     const statusOptions = ['Có mặt', 'Vắng', 'Phép', 'Không phép', 'Muộn'];
     let html = `
@@ -1419,8 +1793,8 @@ function loadAttendance() {
                 <tbody>
     `;
     students.forEach((s, idx) => {
-        const rec = record.records.find(r => r.studentId === s.id);
-        const status = rec ? rec.status : 'Có mặt';
+        const record = records.find(r => r.student_id === s.id);
+        const status = record ? record.status : 'Có mặt';
         const options = statusOptions.map(opt => `<option value="${opt}" ${opt === status ? 'selected' : ''}>${opt}</option>`).join('');
         html += `
             <tr>
@@ -1428,7 +1802,7 @@ function loadAttendance() {
                 <td>${s.id}</td>
                 <td>${s.fullName}</td>
                 <td>
-                    <select class="attendance-status" data-student="${s.id}" onchange="updateAttendanceStatus('${date}','${cls}','${s.id}',this.value)">
+                    <select class="attendance-status" data-student="${s.id}" onchange="updateAttendanceStatus('${date}','${classObj.id}','${s.id}',this.value)">
                         ${options}
                     </select>
                 </td>
@@ -1439,27 +1813,25 @@ function loadAttendance() {
     wrapper.innerHTML = html;
 }
 
-function updateAttendanceStatus(date, cls, studentId, status) {
-    let record = APP_STATE.attendance.find(a => a.date === date && a.class === cls);
-    if (!record) {
-        const students = APP_STATE.students.filter(s => s.class === cls);
-        record = {
-            date: date,
-            class: cls,
-            records: students.map(s => ({ studentId: s.id, status: 'Có mặt' }))
-        };
-        APP_STATE.attendance.push(record);
+async function updateAttendanceStatus(date, classId, studentId, status) {
+    try {
+        const { error } = await supabase
+            .from('app3_attendance')
+            .upsert({
+                student_id: studentId,
+                class_id: classId,
+                attendance_date: date,
+                status: status
+            }, { onConflict: 'student_id,attendance_date' });
+        if (error) throw error;
+        showToast('Cập nhật trạng thái thành công!', 'success', 1500);
+    } catch (err) {
+        showToast('Lỗi cập nhật: ' + err.message, 'error');
     }
-    const rec = record.records.find(r => r.studentId === studentId);
-    if (rec) {
-        rec.status = status;
-    } else {
-        record.records.push({ studentId, status });
-    }
-    localStorage.setItem('attendance', JSON.stringify(APP_STATE.attendance));
 }
 
-function saveAttendance() {
+async function saveAttendance() {
+    // Thực tế đã lưu từng thay đổi, nhưng có thể gọi load lại
     showToast('Đã lưu điểm danh!');
     loadAttendance();
 }
@@ -1472,13 +1844,14 @@ function exportAttendanceExcel() {
         return;
     }
 
-    const record = APP_STATE.attendance.find(a => a.date === date && a.class === cls);
-    if (!record || record.records.length === 0) {
+    // Lấy dữ liệu từ APP_STATE.attendance (đã được load từ Supabase)
+    const records = APP_STATE.attendance.find(a => a.class === cls && a.date === date);
+    if (!records || records.records.length === 0) {
         showToast('Không có dữ liệu điểm danh cho ngày và lớp này.', 'warning');
         return;
     }
 
-    const data = record.records.map(r => {
+    const data = records.records.map(r => {
         const student = APP_STATE.students.find(s => s.id === r.studentId);
         return {
             'Mã HS': r.studentId,
@@ -1497,7 +1870,7 @@ function exportAttendanceExcel() {
 }
 
 // ============================================================
-// 12. QUẢN LÝ KHEN THƯỞNG
+// 12. QUẢN LÝ KHEN THƯỞNG (CRUD)
 // ============================================================
 function generateSampleRewards() {
     return [
@@ -1549,7 +1922,7 @@ function openAddReward() {
         <div class="form-group"><label>Ngày</label><input type="date" id="rewardDate" value="${new Date().toISOString().split('T')[0]}"></div>
         <div class="form-group"><label>Nội dung khen thưởng *</label><textarea id="rewardContent" placeholder="VD: Đạt giải nhất văn nghệ..."></textarea></div>
         <div class="form-group"><label>Người quyết định</label><input type="text" id="rewardDecision" value="Võ Thanh Đậm"></div>
-    `, 'Thêm', 'Hủy').then(confirmed => {
+    `, 'Thêm', 'Hủy').then(async confirmed => {
         if (confirmed) {
             const studentId = document.getElementById('rewardStudent').value;
             const date = document.getElementById('rewardDate').value;
@@ -1559,10 +1932,30 @@ function openAddReward() {
                 showToast('Vui lòng chọn học sinh và nhập nội dung!', 'error');
                 return;
             }
-            APP_STATE.rewards.push({ id: 'R' + Date.now().toString(36), studentId, date, content, decisionBy: decision });
-            localStorage.setItem('rewards', JSON.stringify(APP_STATE.rewards));
-            showToast('Thêm khen thưởng thành công!');
-            renderPage('rewards');
+            try {
+                const { data: newReward, error } = await supabase
+                    .from('app3_rewards')
+                    .insert({
+                        student_id: studentId,
+                        date: date,
+                        content: content,
+                        decision_by: decision
+                    })
+                    .select()
+                    .single();
+                if (error) throw error;
+                APP_STATE.rewards.unshift({
+                    id: newReward.id,
+                    studentId: newReward.student_id,
+                    date: newReward.date,
+                    content: newReward.content,
+                    decisionBy: newReward.decision_by
+                });
+                showToast('Thêm khen thưởng thành công!');
+                renderPage('rewards');
+            } catch (err) {
+                showToast('Lỗi thêm: ' + err.message, 'error');
+            }
         }
     });
 }
@@ -1572,15 +1965,23 @@ async function deleteReward(id) {
     if (!r) return;
     const confirmed = await showModal('Xóa khen thưởng', `Bạn có chắc muốn xóa khen thưởng này?`, 'Xóa', 'Hủy');
     if (confirmed) {
-        APP_STATE.rewards = APP_STATE.rewards.filter(rew => rew.id !== id);
-        localStorage.setItem('rewards', JSON.stringify(APP_STATE.rewards));
-        showToast('Đã xóa!', 'warning');
-        renderPage('rewards');
+        try {
+            const { error } = await supabase
+                .from('app3_rewards')
+                .delete()
+                .eq('id', id);
+            if (error) throw error;
+            APP_STATE.rewards = APP_STATE.rewards.filter(rew => rew.id !== id);
+            showToast('Đã xóa!', 'warning');
+            renderPage('rewards');
+        } catch (err) {
+            showToast('Lỗi xóa: ' + err.message, 'error');
+        }
     }
 }
 
 // ============================================================
-// 13. QUẢN LÝ KỶ LUẬT
+// 13. QUẢN LÝ KỶ LUẬT (CRUD)
 // ============================================================
 function generateSampleDisciplines() {
     return [
@@ -1632,7 +2033,7 @@ function openAddDiscipline() {
         <div class="form-group"><label>Ngày</label><input type="date" id="disciplineDate" value="${new Date().toISOString().split('T')[0]}"></div>
         <div class="form-group"><label>Nội dung kỷ luật *</label><textarea id="disciplineContent" placeholder="VD: Đi học muộn..."></textarea></div>
         <div class="form-group"><label>Người quyết định</label><input type="text" id="disciplineDecision" value="Võ Thanh Đậm"></div>
-    `, 'Thêm', 'Hủy').then(confirmed => {
+    `, 'Thêm', 'Hủy').then(async confirmed => {
         if (confirmed) {
             const studentId = document.getElementById('disciplineStudent').value;
             const date = document.getElementById('disciplineDate').value;
@@ -1642,10 +2043,30 @@ function openAddDiscipline() {
                 showToast('Vui lòng chọn học sinh và nhập nội dung!', 'error');
                 return;
             }
-            APP_STATE.disciplines.push({ id: 'D' + Date.now().toString(36), studentId, date, content, decisionBy: decision });
-            localStorage.setItem('disciplines', JSON.stringify(APP_STATE.disciplines));
-            showToast('Thêm kỷ luật thành công!');
-            renderPage('disciplines');
+            try {
+                const { data: newDis, error } = await supabase
+                    .from('app3_disciplines')
+                    .insert({
+                        student_id: studentId,
+                        date: date,
+                        content: content,
+                        decision_by: decision
+                    })
+                    .select()
+                    .single();
+                if (error) throw error;
+                APP_STATE.disciplines.unshift({
+                    id: newDis.id,
+                    studentId: newDis.student_id,
+                    date: newDis.date,
+                    content: newDis.content,
+                    decisionBy: newDis.decision_by
+                });
+                showToast('Thêm kỷ luật thành công!');
+                renderPage('disciplines');
+            } catch (err) {
+                showToast('Lỗi thêm: ' + err.message, 'error');
+            }
         }
     });
 }
@@ -1655,22 +2076,28 @@ async function deleteDiscipline(id) {
     if (!d) return;
     const confirmed = await showModal('Xóa kỷ luật', `Bạn có chắc muốn xóa kỷ luật này?`, 'Xóa', 'Hủy');
     if (confirmed) {
-        APP_STATE.disciplines = APP_STATE.disciplines.filter(dis => dis.id !== id);
-        localStorage.setItem('disciplines', JSON.stringify(APP_STATE.disciplines));
-        showToast('Đã xóa!', 'warning');
-        renderPage('disciplines');
+        try {
+            const { error } = await supabase
+                .from('app3_disciplines')
+                .delete()
+                .eq('id', id);
+            if (error) throw error;
+            APP_STATE.disciplines = APP_STATE.disciplines.filter(dis => dis.id !== id);
+            showToast('Đã xóa!', 'warning');
+            renderPage('disciplines');
+        } catch (err) {
+            showToast('Lỗi xóa: ' + err.message, 'error');
+        }
     }
 }
 
 // ============================================================
-// 14. QUẢN LÝ FILE (ĐÃ CẬP NHẬT GIAO DIỆN ĐẦY ĐỦ)
+// 14. QUẢN LÝ FILE (Upload/Download với Supabase Storage)
 // ============================================================
 function renderFiles() {
     const files = APP_STATE.files;
     if (!Array.isArray(files)) {
         APP_STATE.files = [];
-        localStorage.setItem('files', JSON.stringify([]));
-        files = APP_STATE.files;
     }
     return `
         <div class="card">
@@ -1701,7 +2128,7 @@ function renderFiles() {
                                 <td>${f.desc || ''}</td>
                                 <td>
                                     <div class="table-actions">
-                                        ${f.data ? `<button class="btn-icon" onclick="viewFile('${f.id}')" title="Xem"><i class="fas fa-eye"></i></button>` : `<span class="text-muted" title="File mẫu không có dữ liệu"><i class="fas fa-eye-slash"></i></span>`}
+                                        ${f.url ? `<button class="btn-icon" onclick="viewFile('${f.id}')" title="Xem"><i class="fas fa-eye"></i></button>` : `<span class="text-muted" title="File mẫu không có dữ liệu"><i class="fas fa-eye-slash"></i></span>`}
                                         <button class="btn-icon" onclick="downloadFile('${f.id}')" title="Tải xuống"><i class="fas fa-download"></i></button>
                                         <button class="btn-icon" onclick="editFile('${f.id}')" title="Sửa"><i class="fas fa-edit"></i></button>
                                         <button class="btn-icon" onclick="deleteFile('${f.id}')" style="color:#dc2626;" title="Xóa"><i class="fas fa-trash"></i></button>
@@ -1720,24 +2147,25 @@ function renderFiles() {
     `;
 }
 
-// Tính tổng dung lượng các file đã lưu (theo đơn vị MB)
 function calculateTotalSize() {
-    const files = APP_STATE.files;
+    // Tính tổng dung lượng từ APP_STATE.files
     let totalBytes = 0;
-    files.forEach(f => {
-        if (f.data) {
-            // Tính kích thước base64 (khoảng 3/4 dung lượng thực)
-            const base64Length = f.data.length;
-            const bytes = Math.floor(base64Length * 3 / 4);
-            totalBytes += bytes;
+    APP_STATE.files.forEach(f => {
+        const sizeStr = f.size;
+        if (sizeStr) {
+            const num = parseFloat(sizeStr);
+            if (!isNaN(num)) {
+                if (sizeStr.includes('MB')) totalBytes += num * 1024 * 1024;
+                else if (sizeStr.includes('KB')) totalBytes += num * 1024;
+                else totalBytes += num;
+            }
         }
     });
     const mb = (totalBytes / (1024 * 1024)).toFixed(2);
     return mb + ' MB';
 }
 
-function openUploadFile() {
-    // Kiểm tra tổng dung lượng trước khi upload
+async function openUploadFile() {
     const totalMB = parseFloat(calculateTotalSize());
     const MAX_TOTAL_MB = 4;
     if (totalMB >= MAX_TOTAL_MB) {
@@ -1751,7 +2179,7 @@ function openUploadFile() {
         <div class="text-muted" style="font-size:0.8rem; margin-top:0.5rem;">
             <i class="fas fa-info-circle"></i> Dung lượng còn trống: ${(MAX_TOTAL_MB - totalMB).toFixed(2)} MB
         </div>
-    `, 'Tải lên', 'Hủy').then(confirmed => {
+    `, 'Tải lên', 'Hủy').then(async confirmed => {
         if (confirmed) {
             const input = document.getElementById('fileInput');
             if (!input.files || input.files.length === 0) {
@@ -1759,44 +2187,60 @@ function openUploadFile() {
                 return;
             }
             const file = input.files[0];
-            const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
+            const MAX_FILE_SIZE = 2 * 1024 * 1024;
             if (file.size > MAX_FILE_SIZE) {
                 showToast('File quá lớn! Chỉ hỗ trợ file dưới 2MB.', 'error');
                 return;
             }
 
-            // Kiểm tra lại tổng dung lượng sau khi chọn file
-            const newTotal = totalMB + file.size / (1024 * 1024);
-            if (newTotal > MAX_TOTAL_MB) {
-                showToast(`Không đủ dung lượng trống (cần ${file.size/(1024*1024).toFixed(2)}MB, còn ${(MAX_TOTAL_MB-totalMB).toFixed(2)}MB)`, 'error');
-                return;
-            }
+            try {
+                // Upload lên storage
+                const fileExt = file.name.split('.').pop();
+                const fileName = `${Date.now()}_${file.name}`;
+                const filePath = `documents/${fileName}`;
 
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                try {
-                    const base64Data = e.target.result.split(',')[1];
-                    const newFile = {
-                        id: 'F' + Date.now().toString(36),
-                        name: file.name,
-                        type: file.type.split('/')[0] || 'unknown',
-                        size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
-                        uploadDate: new Date().toISOString().split('T')[0],
-                        desc: document.getElementById('fileDesc').value.trim(),
-                        data: base64Data
-                    };
-                    APP_STATE.files.push(newFile);
-                    localStorage.setItem('files', JSON.stringify(APP_STATE.files));
-                    showToast('Tải file thành công!');
-                    renderPage('files');
-                } catch (err) {
-                    showToast('Lỗi khi xử lý file: ' + err.message, 'error');
-                }
-            };
-            reader.onerror = function() {
-                showToast('Lỗi đọc file!', 'error');
-            };
-            reader.readAsDataURL(file);
+                const { data: uploadData, error: uploadErr } = await supabase.storage
+                    .from('app3-files')
+                    .upload(filePath, file, { cacheControl: '3600' });
+                if (uploadErr) throw uploadErr;
+
+                // Lấy public URL
+                const { data: urlData } = supabase.storage
+                    .from('app3-files')
+                    .getPublicUrl(filePath);
+
+                // Lưu metadata vào bảng app3_files
+                const { data: fileMeta, error: metaErr } = await supabase
+                    .from('app3_files')
+                    .insert({
+                        file_name: file.name,
+                        file_path: filePath,
+                        file_url: urlData.publicUrl,
+                        file_type: file.type.split('/')[0] || 'unknown',
+                        file_size: (file.size / (1024 * 1024)).toFixed(2) + ' MB',
+                        description: document.getElementById('fileDesc').value.trim() || '',
+                        uploaded_by: (await supabase.auth.getUser()).data.user?.id || null
+                    })
+                    .select()
+                    .single();
+                if (metaErr) throw metaErr;
+
+                // Thêm vào APP_STATE
+                APP_STATE.files.unshift({
+                    id: fileMeta.id,
+                    name: fileMeta.file_name,
+                    type: fileMeta.file_type,
+                    size: fileMeta.file_size,
+                    uploadDate: fileMeta.created_at,
+                    desc: fileMeta.description,
+                    path: fileMeta.file_path,
+                    url: fileMeta.file_url
+                });
+                showToast('Tải file thành công!');
+                renderPage('files');
+            } catch (err) {
+                showToast('Lỗi tải file: ' + err.message, 'error');
+            }
         }
     });
 }
@@ -1807,8 +2251,8 @@ function viewFile(id) {
         showToast('Không tìm thấy file!', 'error');
         return;
     }
-    if (!file.data) {
-        showToast('File này không có dữ liệu để xem (có thể là file mẫu).', 'warning');
+    if (!file.url) {
+        showToast('File này không có đường dẫn xem trước.', 'warning');
         return;
     }
 
@@ -1819,13 +2263,25 @@ function viewFile(id) {
 
     let contentHTML = '';
     if (isImage) {
-        contentHTML = `<img src="data:image/${ext};base64,${file.data}" style="max-width:100%; max-height:500px; display:block; margin:auto;">`;
+        contentHTML = `<img src="${file.url}" style="max-width:100%; max-height:500px; display:block; margin:auto;">`;
     } else if (isPDF) {
-        contentHTML = `<iframe src="data:application/pdf;base64,${file.data}" style="width:100%; height:500px; border:none;"></iframe>`;
+        contentHTML = `<iframe src="${file.url}" style="width:100%; height:500px; border:none;"></iframe>`;
     } else if (isText) {
+        // Tải nội dung text để hiển thị
         try {
-            const text = atob(file.data);
-            contentHTML = `<pre style="white-space:pre-wrap; max-height:400px; overflow-y:auto; background:#f5f5f5; padding:1rem; border-radius:4px;">${text}</pre>`;
+            fetch(file.url)
+                .then(res => res.text())
+                .then(text => {
+                    document.querySelector('#modalBody pre')?.remove();
+                    const pre = document.createElement('pre');
+                    pre.style.cssText = 'white-space:pre-wrap; max-height:400px; overflow-y:auto; background:#f5f5f5; padding:1rem; border-radius:4px;';
+                    pre.textContent = text;
+                    document.getElementById('modalBody').appendChild(pre);
+                })
+                .catch(() => {
+                    showToast('Không thể tải nội dung file.', 'error');
+                });
+            contentHTML = `<p>Đang tải nội dung...</p>`;
         } catch(e) {
             contentHTML = `<p class="text-muted">Không thể hiển thị nội dung file này.</p>`;
         }
@@ -1845,30 +2301,17 @@ function viewFile(id) {
 function downloadFile(id) {
     const file = APP_STATE.files.find(f => f.id === id);
     if (!file) return;
-    if (!file.data) {
-        showToast('File này không có dữ liệu để tải (có thể là file mẫu).', 'warning');
+    if (!file.url) {
+        showToast('File này không có đường dẫn tải.', 'warning');
         return;
     }
-    try {
-        const byteCharacters = atob(file.data);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-            byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray]);
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = file.name;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        showToast(`Đang tải file: ${file.name}`, 'info');
-    } catch (err) {
-        showToast('Lỗi tải file: ' + err.message, 'error');
-    }
+    const a = document.createElement('a');
+    a.href = file.url;
+    a.download = file.name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showToast(`Đang tải file: ${file.name}`, 'info');
 }
 
 function editFile(id) {
@@ -1877,7 +2320,7 @@ function editFile(id) {
     showModal('Sửa file', `
         <div class="form-group"><label>Tên file</label><input type="text" id="editFileName" value="${file.name}"></div>
         <div class="form-group"><label>Mô tả</label><input type="text" id="editFileDesc" value="${file.desc || ''}"></div>
-    `, 'Cập nhật', 'Hủy').then(confirmed => {
+    `, 'Cập nhật', 'Hủy').then(async confirmed => {
         if (confirmed) {
             const newName = document.getElementById('editFileName').value.trim();
             const newDesc = document.getElementById('editFileDesc').value.trim();
@@ -1885,11 +2328,22 @@ function editFile(id) {
                 showToast('Tên file không được để trống.', 'error');
                 return;
             }
-            file.name = newName;
-            file.desc = newDesc;
-            localStorage.setItem('files', JSON.stringify(APP_STATE.files));
-            showToast('Cập nhật file thành công!');
-            renderPage('files');
+            try {
+                const { error } = await supabase
+                    .from('app3_files')
+                    .update({
+                        file_name: newName,
+                        description: newDesc
+                    })
+                    .eq('id', id);
+                if (error) throw error;
+                file.name = newName;
+                file.desc = newDesc;
+                showToast('Cập nhật file thành công!');
+                renderPage('files');
+            } catch (err) {
+                showToast('Lỗi cập nhật: ' + err.message, 'error');
+            }
         }
     });
 }
@@ -1899,15 +2353,32 @@ async function deleteFile(id) {
     if (!file) return;
     const confirmed = await showModal('Xóa file', `Bạn có chắc muốn xóa file <strong>${file.name}</strong>?`, 'Xóa', 'Hủy');
     if (confirmed) {
-        APP_STATE.files = APP_STATE.files.filter(f => f.id !== id);
-        localStorage.setItem('files', JSON.stringify(APP_STATE.files));
-        showToast('Đã xóa file!', 'warning');
-        renderPage('files');
+        try {
+            // Xóa file trong storage
+            if (file.path) {
+                const { error: storageErr } = await supabase.storage
+                    .from('app3-files')
+                    .remove([file.path]);
+                if (storageErr) console.warn('Không thể xóa file trong storage:', storageErr);
+            }
+            // Xóa metadata
+            const { error } = await supabase
+                .from('app3_files')
+                .delete()
+                .eq('id', id);
+            if (error) throw error;
+
+            APP_STATE.files = APP_STATE.files.filter(f => f.id !== id);
+            showToast('Đã xóa file!', 'warning');
+            renderPage('files');
+        } catch (err) {
+            showToast('Lỗi xóa file: ' + err.message, 'error');
+        }
     }
 }
 
 // ============================================================
-// 15. THỐNG KÊ
+// 15. THỐNG KÊ (dùng dữ liệu từ APP_STATE)
 // ============================================================
 function renderStatistics() {
     return `
@@ -1981,7 +2452,7 @@ function initStatCharts() {
 }
 
 // ============================================================
-// 16. TÌM KIẾM, CÀI ĐẶT, IN ẤN
+// 16. TÌM KIẾM, CÀI ĐẶT, IN ẤN (giữ nguyên)
 // ============================================================
 function renderSearch() {
     return `
@@ -2060,6 +2531,7 @@ function renderSettings() {
             <div class="flex gap-2">
                 <button class="btn btn-primary" onclick="backupData()"><i class="fas fa-download"></i> Tải backup</button>
                 <button class="btn btn-warning" onclick="restoreData()"><i class="fas fa-upload"></i> Phục hồi backup</button>
+                <button class="btn btn-info" onclick="migrateLocal()"><i class="fas fa-database"></i> Migrate từ localStorage</button>
             </div>
             <p class="text-muted mt-2" style="font-size:0.8rem;">
                 <i class="fas fa-info-circle"></i> Backup lưu toàn bộ dữ liệu (học sinh, điểm, file...). Dùng để chuyển dữ liệu giữa các trình duyệt hoặc máy tính.
@@ -2071,7 +2543,7 @@ function renderSettings() {
 function initSettings() {}
 function initSearch() {}
 
-function saveSettings() {
+async function saveSettings() {
     const settings = APP_STATE.settings;
     settings.schoolName = document.getElementById('setSchoolName').value.trim();
     settings.schoolYear = document.getElementById('setSchoolYear').value.trim();
@@ -2084,8 +2556,22 @@ function saveSettings() {
         document.documentElement.removeAttribute('data-theme');
         APP_STATE.darkMode = false;
     }
-    localStorage.setItem('settings', JSON.stringify(settings));
-    showToast('Đã lưu cài đặt!');
+    // Lưu vào Supabase
+    try {
+        const { error } = await supabase
+            .from('app3_settings')
+            .upsert({
+                school_name: settings.schoolName,
+                school_year: settings.schoolYear,
+                teacher_name: settings.teacherName,
+                theme: settings.theme,
+                logo_url: settings.logo || ''
+            });
+        if (error) throw error;
+        showToast('Đã lưu cài đặt!');
+    } catch (err) {
+        showToast('Lỗi lưu cài đặt: ' + err.message, 'error');
+    }
 }
 
 function changePassword() {
@@ -2093,7 +2579,13 @@ function changePassword() {
     const confirm = document.getElementById('confirmPassword').value;
     if (!pwd || pwd.length < 6) { showToast('Mật khẩu phải có ít nhất 6 ký tự.', 'error'); return; }
     if (pwd !== confirm) { showToast('Mật khẩu xác nhận không khớp.', 'error'); return; }
-    showToast('Đổi mật khẩu thành công! (Demo)');
+    // Đổi mật khẩu Supabase
+    supabase.auth.updateUser({ password: pwd })
+        .then(({ error }) => {
+            if (error) throw error;
+            showToast('Đổi mật khẩu thành công!');
+        })
+        .catch(err => showToast('Lỗi đổi mật khẩu: ' + err.message, 'error'));
 }
 
 function printStudents() {
@@ -2341,7 +2833,247 @@ function exportDisciplines() {
 }
 
 // ============================================================
-// 18. NAVIGATION & LOGIN
+// 18. BACKUP & RESTORE TOÀN BỘ DỮ LIỆU
+// ============================================================
+function backupData() {
+    try {
+        const data = {
+            students: APP_STATE.students,
+            classes: APP_STATE.classes,
+            scores: APP_STATE.scores,
+            attendance: APP_STATE.attendance,
+            rewards: APP_STATE.rewards,
+            disciplines: APP_STATE.disciplines,
+            files: APP_STATE.files,
+            settings: APP_STATE.settings,
+            backedUpAt: new Date().toISOString(),
+            version: '2.0'
+        };
+        const json = JSON.stringify(data, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `backup_qlhs_${new Date().toISOString().slice(0,10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('Tải backup thành công!', 'success');
+    } catch (err) {
+        showToast('Lỗi khi tạo backup: ' + err.message, 'error');
+    }
+}
+
+async function restoreData() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.style.display = 'none';
+    document.body.appendChild(input);
+    input.click();
+
+    input.addEventListener('change', async function (e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async function (ev) {
+            try {
+                const backup = JSON.parse(ev.target.result);
+                if (!backup.students || !backup.classes || !backup.scores) {
+                    showToast('File backup không hợp lệ!', 'error');
+                    return;
+                }
+
+                const confirm = await showModal(
+                    'Xác nhận phục hồi',
+                    `<p>Bạn sẽ thay thế toàn bộ dữ liệu hiện tại bằng dữ liệu từ backup.</p>
+                     <p><strong>Ngày backup:</strong> ${backup.backedUpAt ? new Date(backup.backedUpAt).toLocaleString() : 'Không rõ'}</p>
+                     <p>Số học sinh: ${backup.students.length}</p>
+                     <p style="color:#dc2626;">Hành động này không thể hoàn tác!</p>`,
+                    'Phục hồi',
+                    'Hủy'
+                );
+                if (!confirm) return;
+
+                showLoading();
+
+                // --- 1. Phục hồi Lớp (app3_classes) ---
+                // Tạo class và map class_code -> class_id
+const classMap = {};
+for (const cls of backup.classes) {
+    const classCode = cls.id || cls.name;
+    const { data, error } = await supabase
+        .from('app3_classes')
+        .upsert({
+            class_code: classCode,
+            name: cls.name,
+            grade: cls.grade,
+            teacher: cls.teacher || 'Võ Thanh Đậm'
+        }, { onConflict: 'class_code' })
+        .select('id, class_code')
+        .single();
+    classMap[classCode] = data.id;
+}
+
+// Khi insert student, lấy class_id từ map
+const classId = classMap[s.class]; // s.class là tên lớp (VD: '3B1')
+
+                // --- 2. Phục hồi Học sinh (app3_students) ---
+                // 2. Phục hồi Học sinh (app3_students)
+const studentMap = {}; // map student_code -> student_id
+
+
+                // --- 3. Phục hồi Điểm (app3_scores) ---
+                for (const [studentCode, subjects] of Object.entries(backup.scores)) {
+                    const studentId = studentMap[studentCode];
+                    if (!studentId) continue;
+                    for (const [subject, sc] of Object.entries(subjects)) {
+                        const { error } = await supabase
+                            .from('app3_scores')
+                            .upsert({
+                                student_id: studentId,
+                                subject: subject,
+                                giua_ky_1: sc.giuaKy1 || '',
+                                cuoi_ky_1: sc.cuoiKy1 !== null ? sc.cuoiKy1 : null,
+                                giua_ky_2: sc.giuaKy2 || '',
+                                cuoi_ky_2: sc.cuoiKy2 !== null ? sc.cuoiKy2 : null
+                            }, { onConflict: 'student_id,subject' });
+                        if (error) {
+                            console.error('Lỗi upsert score:', error);
+                            throw new Error(`Lỗi điểm ${studentCode}-${subject}: ${error.message}`);
+                        }
+                    }
+                }
+
+                // --- 4. Phục hồi Điểm danh (app3_attendance) ---
+                for (const att of backup.attendance) {
+                    const classCode = att.class;
+                    const classId = classMap[classCode];
+                    if (!classId) continue;
+                    for (const rec of att.records) {
+                        const studentId = studentMap[rec.studentId];
+                        if (!studentId) continue;
+                        const { error } = await supabase
+                            .from('app3_attendance')
+                            .upsert({
+                                student_id: studentId,
+                                class_id: classId,
+                                attendance_date: att.date,
+                                status: rec.status || 'Có mặt'
+                            }, { onConflict: 'student_id,attendance_date' });
+                        if (error) {
+                            console.error('Lỗi upsert attendance:', error);
+                            // không throw để tiếp tục
+                        }
+                    }
+                }
+
+                // --- 5. Phục hồi Khen thưởng (app3_rewards) ---
+                for (const r of backup.rewards || []) {
+                    const studentId = studentMap[r.studentId];
+                    if (!studentId) continue;
+                    const { error } = await supabase
+                        .from('app3_rewards')
+                        .insert({
+                            student_id: studentId,
+                            date: r.date,
+                            content: r.content,
+                            decision_by: r.decisionBy || 'Võ Thanh Đậm'
+                        });
+                    if (error) console.error('Lỗi insert reward:', error);
+                }
+
+                // --- 6. Phục hồi Kỷ luật (app3_disciplines) ---
+                for (const d of backup.disciplines || []) {
+                    const studentId = studentMap[d.studentId];
+                    if (!studentId) continue;
+                    const { error } = await supabase
+                        .from('app3_disciplines')
+                        .insert({
+                            student_id: studentId,
+                            date: d.date,
+                            content: d.content,
+                            decision_by: d.decisionBy || 'Võ Thanh Đậm'
+                        });
+                    if (error) console.error('Lỗi insert discipline:', error);
+                }
+
+                // --- 7. Phục hồi File (app3_files) --- (chỉ metadata, không upload lại file)
+                for (const f of backup.files || []) {
+                    const { error } = await supabase
+                        .from('app3_files')
+                        .insert({
+                            file_name: f.name,
+                            file_path: f.path || `legacy/${f.id}`,
+                            file_url: f.url || null,
+                            file_type: f.type,
+                            file_size: f.size,
+                            description: f.desc || ''
+                        });
+                    if (error) console.error('Lỗi insert file:', error);
+                }
+
+                // --- 8. Phục hồi Settings (app3_settings) ---
+                if (backup.settings) {
+                    const { error } = await supabase
+                        .from('app3_settings')
+                        .upsert({
+                            school_name: backup.settings.schoolName || 'Trường Tiểu học Trần Quốc Toản',
+                            school_year: backup.settings.schoolYear || '2025-2026',
+                            teacher_name: backup.settings.teacherName || 'Võ Thanh Đậm',
+                            theme: backup.settings.theme || 'light',
+                            logo_url: backup.settings.logo || ''
+                        });
+                    if (error) console.error('Lỗi upsert settings:', error);
+                }
+
+                // --- Kết thúc ---
+                await loadAllData(); // tải lại dữ liệu từ Supabase
+                showToast('Phục hồi dữ liệu thành công!', 'success');
+                renderPage(APP_STATE.currentPage);
+
+            } catch (err) {
+                console.error('Lỗi restore:', err);
+                showToast('Lỗi phục hồi: ' + err.message, 'error');
+            } finally {
+                hideLoading();
+                document.body.removeChild(input);
+            }
+        };
+        reader.readAsText(file);
+    });
+}
+
+// ============================================================
+// 19. MIGRATION LOCALSTORAGE → SUPABASE
+// ============================================================
+async function migrateLocal() {
+    const confirmed = await showModal('Migration dữ liệu từ localStorage',
+        '<p>Bạn sẽ chuyển toàn bộ dữ liệu từ localStorage lên Supabase.</p>' +
+        '<p style="color:#dc2626;">Dữ liệu trên Supabase sẽ được cập nhật, không mất dữ liệu cũ nếu trùng mã.</p>',
+        'Tiến hành', 'Hủy');
+    if (!confirmed) return;
+
+    showLoading();
+    try {
+        const result = await migrateLocalStorageToSupabase();
+        if (result.success) {
+            showToast(`Migration thành công! Số bản ghi đã chuyển: ${JSON.stringify(result.result)}`, 'success');
+            await loadAllData();
+            renderPage(APP_STATE.currentPage);
+        } else {
+            showToast('Migration thất bại: ' + result.error, 'error');
+        }
+    } catch (err) {
+        showToast('Lỗi migration: ' + err.message, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+// ============================================================
+// 20. NAVIGATION & LOGIN (Supabase Auth)
 // ============================================================
 function initNavigation() {
     document.querySelectorAll('.nav-item').forEach(item => {
@@ -2380,24 +3112,45 @@ function initNavigation() {
         if (icon) {
             icon.className = isDark ? 'fas fa-moon' : 'fas fa-sun';
         }
+        // Lưu xuống Supabase
+        supabase.from('app3_settings').upsert({
+            theme: APP_STATE.settings.theme
+        }).then(({ error }) => {
+            if (error) console.warn('Không thể lưu theme:', error);
+        });
     });
 }
 
 function initLogin() {
-    document.getElementById('loginForm').addEventListener('submit', function(e) {
+    document.getElementById('loginForm').addEventListener('submit', async function(e) {
         e.preventDefault();
         const username = document.getElementById('loginUsername').value.trim();
         const password = document.getElementById('loginPassword').value.trim();
-        if (username === 'admin' && password === 'admin123') {
+        if (!username || !password) {
+            showToast('Vui lòng nhập đầy đủ thông tin.', 'error');
+            return;
+        }
+        showLoading();
+        try {
+            // Đăng nhập bằng email/password (giả định username là email)
+            const { data, error } = await supabase.auth.signInWithPassword({
+                email: username,
+                password: password
+            });
+            if (error) throw error;
+            // Đăng nhập thành công
             document.getElementById('loginScreen').style.display = 'none';
             document.getElementById('app').classList.remove('hidden');
             if (document.getElementById('rememberMe').checked) {
                 localStorage.setItem('remembered', 'true');
             }
             showToast('Đăng nhập thành công!');
+            await loadAllData();
             renderPage('dashboard');
-        } else {
-            showToast('Tên đăng nhập hoặc mật khẩu không đúng!', 'error');
+        } catch (err) {
+            showToast('Đăng nhập thất bại: ' + err.message, 'error');
+        } finally {
+            hideLoading();
         }
     });
 
@@ -2415,27 +3168,38 @@ function initLogin() {
 
     document.getElementById('forgotPassword').addEventListener('click', function(e) {
         e.preventDefault();
-        showToast('Vui lòng liên hệ quản trị viên để đặt lại mật khẩu.', 'info');
+        const email = prompt('Nhập email để đặt lại mật khẩu:');
+        if (email) {
+            supabase.auth.resetPasswordForEmail(email)
+                .then(({ error }) => {
+                    if (error) throw error;
+                    showToast('Email đặt lại mật khẩu đã được gửi.', 'info');
+                })
+                .catch(err => showToast('Lỗi: ' + err.message, 'error'));
+        }
     });
 
-    document.getElementById('logoutBtn').addEventListener('click', function() {
+    document.getElementById('logoutBtn').addEventListener('click', async function() {
+        await supabase.auth.signOut();
         document.getElementById('loginScreen').style.display = 'flex';
         document.getElementById('app').classList.add('hidden');
         showToast('Đã đăng xuất.', 'info');
     });
 
-    if (localStorage.getItem('remembered') === 'true') {
-        document.getElementById('loginUsername').value = 'admin';
-        document.getElementById('loginPassword').value = 'admin123';
-        document.getElementById('rememberMe').checked = true;
-    }
+    // Kiểm tra session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session) {
+            document.getElementById('loginScreen').style.display = 'none';
+            document.getElementById('app').classList.remove('hidden');
+            loadAllData().then(() => renderPage('dashboard'));
+        }
+    });
 }
 
 // ============================================================
-// 19. KHỞI ĐỘNG
+// 21. KHỞI ĐỘNG
 // ============================================================
 document.addEventListener('DOMContentLoaded', function() {
-    initData();
     initLogin();
     initNavigation();
 
@@ -2444,13 +3208,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (icon) icon.className = 'fas fa-sun';
     }
 
-    if (localStorage.getItem('remembered') === 'true') {
-        document.getElementById('loginScreen').style.display = 'none';
-        document.getElementById('app').classList.remove('hidden');
-        renderPage('dashboard');
-    }
-
-    // Export functions to window
+    // Export các hàm ra window để gọi từ HTML
     window.openAddStudent = openAddStudent;
     window.editStudent = editStudent;
     window.viewStudent = viewStudent;
@@ -2500,98 +3258,5 @@ document.addEventListener('DOMContentLoaded', function() {
     window.downloadAvatar = downloadAvatar;
     window.backupData = backupData;
     window.restoreData = restoreData;
+    window.migrateLocal = migrateLocal;
 });
-
-// ============================================================
-// 20. BACKUP & RESTORE TOÀN BỘ DỮ LIỆU
-// ============================================================
-function backupData() {
-    try {
-        const data = {
-            students: APP_STATE.students,
-            classes: APP_STATE.classes,
-            scores: APP_STATE.scores,
-            attendance: APP_STATE.attendance,
-            rewards: APP_STATE.rewards,
-            disciplines: APP_STATE.disciplines,
-            files: APP_STATE.files,
-            settings: APP_STATE.settings,
-            backedUpAt: new Date().toISOString(),
-            version: '2.0'
-        };
-        const json = JSON.stringify(data, null, 2);
-        const blob = new Blob([json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `backup_qlhs_${new Date().toISOString().slice(0,10)}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        showToast('Tải backup thành công!', 'success');
-    } catch (err) {
-        showToast('Lỗi khi tạo backup: ' + err.message, 'error');
-    }
-}
-
-function restoreData() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
-    input.style.display = 'none';
-    document.body.appendChild(input);
-    input.click();
-
-    input.addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = function(ev) {
-            try {
-                const data = JSON.parse(ev.target.result);
-                if (!data.students || !data.classes || !data.scores) {
-                    showToast('File backup không hợp lệ!', 'error');
-                    return;
-                }
-                showModal(
-                    'Xác nhận phục hồi',
-                    `<p>Bạn sẽ thay thế toàn bộ dữ liệu hiện tại bằng dữ liệu từ backup.</p>
-                     <p><strong>Ngày backup:</strong> ${data.backedUpAt ? new Date(data.backedUpAt).toLocaleString() : 'Không rõ'}</p>
-                     <p>Số học sinh: ${data.students.length}</p>
-                     <p style="color:#dc2626;">Hành động này không thể hoàn tác!</p>`,
-                    'Phục hồi',
-                    'Hủy'
-                ).then(confirmed => {
-                    if (confirmed) {
-                        APP_STATE.students = data.students;
-                        APP_STATE.classes = data.classes;
-                        APP_STATE.scores = data.scores || {};
-                        APP_STATE.attendance = data.attendance || [];
-                        APP_STATE.rewards = data.rewards || [];
-                        APP_STATE.disciplines = data.disciplines || [];
-                        APP_STATE.files = data.files || [];
-                        if (data.settings) APP_STATE.settings = data.settings;
-
-                        localStorage.setItem('students', JSON.stringify(APP_STATE.students));
-                        localStorage.setItem('classes', JSON.stringify(APP_STATE.classes));
-                        localStorage.setItem('scores', JSON.stringify(APP_STATE.scores));
-                        localStorage.setItem('attendance', JSON.stringify(APP_STATE.attendance));
-                        localStorage.setItem('rewards', JSON.stringify(APP_STATE.rewards));
-                        localStorage.setItem('disciplines', JSON.stringify(APP_STATE.disciplines));
-                        localStorage.setItem('files', JSON.stringify(APP_STATE.files));
-                        localStorage.setItem('settings', JSON.stringify(APP_STATE.settings));
-
-                        updateClassCounts();
-                        showToast('Phục hồi dữ liệu thành công!');
-                        renderPage(APP_STATE.currentPage);
-                    }
-                });
-            } catch (err) {
-                showToast('Lỗi đọc file backup: ' + err.message, 'error');
-            }
-        };
-        reader.readAsText(file);
-        document.body.removeChild(input);
-    });
-}
