@@ -1653,20 +1653,20 @@ async function updateScore(studentId, field, value) {
         const num = parseFloat(value);
         sc[field] = isNaN(num) ? null : num;
         updateData = { [field === 'cuoiKy1' ? 'cuoi_ky_1' : 'cuoi_ky_2']: isNaN(num) ? null : num };
-            } else if (field === 'competence' || field === 'quality') {
-        // 1. Cập nhật APP_STATE để giao diện hiển thị ngay
+               } else if (field === 'competence' || field === 'quality') {
+        // 1. Cập nhật APP_STATE và giao diện tab Điểm ngay lập tức
         if (!APP_STATE.scores[studentId]) APP_STATE.scores[studentId] = {};
         if (!APP_STATE.scores[studentId][subject]) {
             APP_STATE.scores[studentId][subject] = { giuaKy1: '', cuoiKy1: null, giuaKy2: '', cuoiKy2: null, competence: '', quality: '' };
         }
         APP_STATE.scores[studentId][subject][field] = value;
-        
-        // Lấy toàn bộ object điểm của môn học này để gửi lên (để không bị mất cột kia)
         const updatedSc = APP_STATE.scores[studentId][subject];
+
+        // Lấy UUID (để ghi vào bảng điểm) và đối tượng sinh viên
         const student = APP_STATE.students.find(s => s.id === studentId);
         if (!student) return;
 
-        // --- LƯU 1: Lưu xuống bảng ĐIỂM (app3_scores) ---
+        // 2. Ghi xuống bảng app3_scores (Lưu theo từng môn học)
         const { error: scoreError } = await supabase
             .from('app3_scores')
             .upsert({
@@ -1681,21 +1681,25 @@ async function updateScore(studentId, field, value) {
             }, { onConflict: 'student_id,subject' });
 
         if (scoreError) {
-            console.error('Lỗi cập nhật điểm:', scoreError);
-            showToast('Lỗi khi lưu: ' + scoreError.message, 'error');
+            console.error('Lỗi cập nhật bảng ĐIỂM:', scoreError);
+            showToast('Lỗi lưu điểm: ' + scoreError.message, 'error');
             return;
         }
 
-        // --- LƯU 2: Đồng thời lưu xuống bảng HỌC SINH (app3_students) để tab Học sinh hiển thị ---
-        student[field] = value; // Cập nhật dữ liệu trên giao diện tab Học sinh ngay lập tức
-        
+        // 3. Đồng thời ghi đè xuống bảng app3_students (Để tab Học sinh hiển thị đúng)
+        student[field] = value; // Cập nhật ngay biến state -> Khi qua tab Học sinh sẽ hiện liền
+
         const { error: studentError } = await supabase
             .from('app3_students')
-            .update({ [field]: value }) // Chỉ cập nhật cột vừa thay đổi
-            .eq('student_code', studentId); // Dùng mã HS làm điều kiện
+            .update({ [field]: value })
+            .eq('student_code', studentId); 
 
         if (studentError) {
-            console.error('Lỗi cập nhật hồ sơ học sinh:', studentError);
+            console.error('Lỗi cập nhật bảng HỌC SINH:', studentError);
+            showToast('Lỗi đồng bộ hồ sơ học sinh: ' + studentError.message, 'error');
+        } else {
+            // Nếu lưu thành công
+            showToast('Đã đồng bộ thành công Năng lực/Phẩm chất cho môn ' + subject + '!', 'success', 1500);
         }
         return; // Kết thúc hàm
     }
@@ -2747,8 +2751,11 @@ function exportClassList() {
 }
 
 function exportScoreClass() {
+    // Lấy lớp từ dropdown export
     const cls = document.getElementById('exportScoreClass')?.value;
-    const subject = APP_STATE.currentSubject;
+    // QUAN TRỌNG: Lấy môn học đang chọn từ APP_STATE thay vì gán cứng
+    const subject = APP_STATE.currentSubject; 
+
     if (!cls) {
         showToast('Vui lòng chọn lớp để xuất điểm.', 'warning');
         return;
@@ -2768,8 +2775,8 @@ function exportScoreClass() {
             'Cuối kỳ 1': sc.cuoiKy1 !== null ? sc.cuoiKy1 : '',
             'Giữa kỳ 2': sc.giuaKy2,
             'Cuối kỳ 2': sc.cuoiKy2 !== null ? sc.cuoiKy2 : '',
-            'Năng lực': s.competence || '',
-            'Phẩm chất': s.quality || ''
+            'Năng lực': sc.competence || '',
+            'Phẩm chất': sc.quality || ''
         };
     });
     const wb = XLSX.utils.book_new();
@@ -3212,6 +3219,7 @@ function initLogin() {
 // ============================================================
 // 21. KHỞI ĐỘNG
 // ============================================================
+
 document.addEventListener('DOMContentLoaded', function() {
     initLogin();
     initNavigation();
