@@ -1653,30 +1653,51 @@ async function updateScore(studentId, field, value) {
         const num = parseFloat(value);
         sc[field] = isNaN(num) ? null : num;
         updateData = { [field === 'cuoiKy1' ? 'cuoi_ky_1' : 'cuoi_ky_2']: isNaN(num) ? null : num };
-        } else if (field === 'competence' || field === 'quality') {
-        // 1. Cập nhật dữ liệu trong APP_STATE để giao diện hiển thị ngay lập tức
+            } else if (field === 'competence' || field === 'quality') {
+        // 1. Cập nhật APP_STATE để giao diện hiển thị ngay
         if (!APP_STATE.scores[studentId]) APP_STATE.scores[studentId] = {};
-        if (!APP_STATE.scores[studentId][subject]) APP_STATE.scores[studentId][subject] = { giuaKy1: '', cuoiKy1: null, giuaKy2: '', cuoiKy2: null };
+        if (!APP_STATE.scores[studentId][subject]) {
+            APP_STATE.scores[studentId][subject] = { giuaKy1: '', cuoiKy1: null, giuaKy2: '', cuoiKy2: null, competence: '', quality: '' };
+        }
         APP_STATE.scores[studentId][subject][field] = value;
-
-        // 2. Lấy UUID của học sinh để lưu xuống bảng app3_scores
+        
+        // Lấy toàn bộ object điểm của môn học này để gửi lên (để không bị mất cột kia)
+        const updatedSc = APP_STATE.scores[studentId][subject];
         const student = APP_STATE.students.find(s => s.id === studentId);
         if (!student) return;
 
-        // 3. Ghi dữ liệu xuống đúng bảng app3_scores (có thêm cột competence và quality)
-        const { error } = await supabase
+        // --- LƯU 1: Lưu xuống bảng ĐIỂM (app3_scores) ---
+        const { error: scoreError } = await supabase
             .from('app3_scores')
             .upsert({
                 student_id: student.db_uuid,
                 subject: subject,
-                [field]: value
+                giua_ky_1: updatedSc.giuaKy1 || '',
+                cuoi_ky_1: updatedSc.cuoiKy1 !== null ? updatedSc.cuoiKy1 : null,
+                giua_ky_2: updatedSc.giuaKy2 || '',
+                cuoi_ky_2: updatedSc.cuoiKy2 !== null ? updatedSc.cuoiKy2 : null,
+                competence: updatedSc.competence || '',
+                quality: updatedSc.quality || ''
             }, { onConflict: 'student_id,subject' });
-            
-        if (error) {
-            console.error('Lỗi cập nhật năng lực/phẩm chất:', error);
-            showToast('Lỗi khi lưu: ' + error.message, 'error');
+
+        if (scoreError) {
+            console.error('Lỗi cập nhật điểm:', scoreError);
+            showToast('Lỗi khi lưu: ' + scoreError.message, 'error');
+            return;
         }
-        return; // Kết thúc hàm ở đây
+
+        // --- LƯU 2: Đồng thời lưu xuống bảng HỌC SINH (app3_students) để tab Học sinh hiển thị ---
+        student[field] = value; // Cập nhật dữ liệu trên giao diện tab Học sinh ngay lập tức
+        
+        const { error: studentError } = await supabase
+            .from('app3_students')
+            .update({ [field]: value }) // Chỉ cập nhật cột vừa thay đổi
+            .eq('student_code', studentId); // Dùng mã HS làm điều kiện
+
+        if (studentError) {
+            console.error('Lỗi cập nhật hồ sơ học sinh:', studentError);
+        }
+        return; // Kết thúc hàm
     }
     // Lấy UUID của học sinh để lưu vào bảng điểm (app3_scores yêu cầu UUID)
     const student = APP_STATE.students.find(s => s.id === studentId);
