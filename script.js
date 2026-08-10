@@ -3280,40 +3280,43 @@ document.addEventListener('DOMContentLoaded', function() {
     window.restoreData = restoreData;
     window.migrateLocal = migrateLocal;
     // ============================================================
-// BỔ SUNG LOGIC BẬT/TẮT MENU MOBILE (Dán vào cuối file, không xóa code cũ)
+// FIX LOGIC CẢM ỨNG NÚT 3 GẠCH (Dán ở cuối script.js)
 // ============================================================
-document.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('load', () => {
     const mobileBtn = document.getElementById('toggleSidebarMobile');
     const overlay = document.getElementById('sidebarOverlay');
     const sidebar = document.querySelector('.sidebar') || document.querySelector('aside');
 
-    function openMobileMenu() {
-        if (sidebar) sidebar.classList.add('show');
-        if (overlay) overlay.classList.add('show');
+    function toggleMenu(e) {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        if (sidebar) sidebar.classList.toggle('show');
+        if (overlay) overlay.classList.toggle('show');
     }
 
-    function closeMobileMenu() {
+    function closeMenu() {
         if (sidebar) sidebar.classList.remove('show');
         if (overlay) overlay.classList.remove('show');
     }
 
     if (mobileBtn) {
-        mobileBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            openMobileMenu();
-        });
+        // Gán cả 2 sự kiện Click và Touchstart cho điện thoại
+        mobileBtn.addEventListener('click', toggleMenu);
+        mobileBtn.addEventListener('touchstart', toggleMenu, { passive: false });
     }
 
     if (overlay) {
-        overlay.addEventListener('click', closeMobileMenu);
+        overlay.addEventListener('click', closeMenu);
+        overlay.addEventListener('touchstart', closeMenu, { passive: false });
     }
 
-    const menuLinks = document.querySelectorAll('.sidebar a, .sidebar button, .nav-item');
-    menuLinks.forEach(link => {
+    // Tự đóng menu khi chọn tab
+    const navLinks = document.querySelectorAll('.sidebar a, aside a, .nav-item');
+    navLinks.forEach(link => {
         link.addEventListener('click', () => {
-            if (window.innerWidth <= 992) {
-                closeMobileMenu();
-            }
+            if (window.innerWidth <= 992) closeMenu();
         });
     });
 });

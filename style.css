@@ -677,3 +677,63 @@ td select, td input {
         display: block;
     }
 }
+/* ============================================================
+   FIX LỖI NÚT 3 GẠCH TRÊN ĐIỆN THOẠI (Dán đè ở cuối style.css)
+   ============================================================ */
+
+/* Lớp phủ nền mờ */
+.sidebar-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px);
+    z-index: 1000;
+    display: none;
+}
+
+.sidebar-overlay.show {
+    display: block !important;
+}
+
+@media (max-width: 992px) {
+    /* Ép hiển thị nút 3 gạch nổi lên trên cùng */
+    #toggleSidebarMobile {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        position: relative !important;
+        z-index: 9999 !important; /* Đảm bảo nổi trên mọi thành phần */
+        min-width: 44px !important; /* Kích thước tối thiểu cho ngón tay dễ bấm */
+        min-height: 44px !important;
+        background: transparent !important;
+        border: none !important;
+        font-size: 1.4rem !important;
+        color: var(--text-primary, #ffffff) !important;
+        cursor: pointer !important;
+        padding: 8px !important;
+        margin-right: 8px !important;
+    }
+
+    /* Đưa Sidebar trượt ẩn sang bên trái */
+    .sidebar, aside {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        bottom: 0 !important;
+        width: 260px !important;
+        z-index: 2000 !important;
+        transform: translateX(-100%) !important;
+        transition: transform 0.3s ease !important;
+    }
+
+    /* Hiển thị Sidebar khi bấm nút */
+    .sidebar.show, aside.show {
+        transform: translateX(0) !important;
+    }
+
+    /* Đưa giao diện chính tràn lề */
+    .main-content {
+        margin-left: 0 !important;
+        width: 100% !important;
+    }
+}
