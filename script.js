@@ -3321,3 +3321,90 @@ window.addEventListener('load', () => {
     });
 });
 });
+// ============================================================
+// CẤU HÌNH ĐĂNG NHẬP GOOGLE BẰNG SUPABASE (Dán ở cuối script.js)
+// ============================================================
+
+// 1. Hàm kích hoạt mở cửa sổ đăng nhập Google
+async function loginWithGoogle() {
+    try {
+        const client = window.supabaseClient || window.supabase;
+        if (!client) {
+            alert("Lỗi: Không tìm thấy Supabase client!");
+            return;
+        }
+
+        const { data, error } = await client.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+                redirectTo: window.location.origin + window.location.pathname
+            }
+        });
+
+        if (error) throw error;
+    } catch (err) {
+        console.error("Lỗi Google Auth:", err);
+        alert("Đăng nhập bằng Google thất bại: " + err.message);
+    }
+}
+
+// 2. Hàm kiểm tra phiên đăng nhập và cập nhật giao diện
+async function checkAuthState() {
+    try {
+        const client = window.supabaseClient || window.supabase;
+        if (!client || !client.auth) return;
+
+        const { data: { session } } = await client.auth.getSession();
+
+        if (session && session.user) {
+            const user = session.user;
+            const meta = user.user_metadata || {};
+
+            // Ẩn màn hình Đăng nhập (loginScreen) và mở App chính (#app)
+            const loginScreen = document.getElementById('loginScreen');
+            const mainApp = document.getElementById('app');
+
+            if (loginScreen) loginScreen.classList.add('hidden');
+            if (mainApp) mainApp.classList.remove('hidden');
+
+            // Cập nhật tên hiển thị người dùng trên giao diện
+            const userNameEls = document.querySelectorAll('.user-name, #userName, .profile-name');
+            userNameEls.forEach(el => {
+                el.textContent = meta.full_name || meta.name || user.email;
+            });
+        }
+    } catch (e) {
+        console.error("Lỗi kiểm tra session:", e);
+    }
+}
+
+// 3. Đăng ký sự kiện khi trang web tải xong
+document.addEventListener('DOMContentLoaded', () => {
+    checkAuthState();
+
+    const googleBtn = document.getElementById('googleLoginBtn');
+    if (googleBtn) {
+        googleBtn.addEventListener('click', loginWithGoogle);
+    }
+});
+// 3. Đăng ký sự kiện khi trang web tải xong
+document.addEventListener('DOMContentLoaded', () => {
+    // Kiểm tra phiên làm việc ngay khi vừa tải trang
+    checkAuthState();
+
+    // Lắng nghe sự kiện đăng nhập/đăng xuất từ Supabase (Xử lý chuyển hướng Google OAuth)
+    const client = window.supabaseClient || window.supabase;
+    if (client && client.auth) {
+        client.auth.onAuthStateChange((event, session) => {
+            if (event === 'SIGNED_IN' || session) {
+                checkAuthState();
+            }
+        });
+    }
+
+    // Gán sự kiện cho nút bấm Đăng nhập Google
+    const googleBtn = document.getElementById('googleLoginBtn');
+    if (googleBtn) {
+        googleBtn.addEventListener('click', loginWithGoogle);
+    }
+});
