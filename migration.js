@@ -1,7 +1,6 @@
 import { supabase } from './supabase.js';
 
 export async function migrateLocalStorageToSupabase() {
-    // Đọc tất cả dữ liệu từ localStorage
     const localStudents = JSON.parse(localStorage.getItem('students') || '[]');
     const localClasses = JSON.parse(localStorage.getItem('classes') || '[]');
     const localScores = JSON.parse(localStorage.getItem('scores') || '{}');
@@ -11,16 +10,7 @@ export async function migrateLocalStorageToSupabase() {
     const localFiles = JSON.parse(localStorage.getItem('files') || '[]');
     const localSettings = JSON.parse(localStorage.getItem('settings') || '{}');
 
-    let result = {
-        students: 0,
-        classes: 0,
-        scores: 0,
-        attendance: 0,
-        rewards: 0,
-        disciplines: 0,
-        files: 0,
-        settings: 0
-    };
+    let result = { students: 0, classes: 0, scores: 0, attendance: 0, rewards: 0, disciplines: 0, files: 0, settings: 0 };
 
     try {
         // 1. Migration Classes
@@ -37,7 +27,6 @@ export async function migrateLocalStorageToSupabase() {
         }
 
         // 2. Migration Students
-        // Cần tạo class_id tương ứng với class_code
         const classMap = {};
         const { data: classesData } = await supabase.from('app3_classes').select('id, class_code');
         if (classesData) {
@@ -72,7 +61,6 @@ export async function migrateLocalStorageToSupabase() {
         }
 
         // 3. Migration Scores
-        // Lấy map student_code -> id
         const studentMap = {};
         const { data: studentsData } = await supabase.from('app3_students').select('id, student_code');
         if (studentsData) {
@@ -99,7 +87,6 @@ export async function migrateLocalStorageToSupabase() {
 
         // 4. Migration Attendance
         for (const att of localAttendance) {
-            // att: { date, class, records: [{studentId, status}] }
             const { data: classData } = await supabase.from('app3_classes').select('id').eq('class_code', att.class).single();
             const classId = classData?.id || null;
             for (const rec of att.records) {
@@ -147,8 +134,7 @@ export async function migrateLocalStorageToSupabase() {
             if (!error) result.disciplines++;
         }
 
-        // 7. Migration Files (chỉ metadata, không chuyển file base64 sang storage do phức tạp)
-        // Có thể bỏ qua hoặc chuyển sau
+        // 7. Migration Files
         for (const f of localFiles) {
             const { error } = await supabase
                 .from('app3_files')
