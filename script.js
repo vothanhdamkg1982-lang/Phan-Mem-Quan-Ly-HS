@@ -3279,4 +3279,42 @@ document.addEventListener('DOMContentLoaded', function() {
     window.backupData = backupData;
     window.restoreData = restoreData;
     window.migrateLocal = migrateLocal;
+    // ============================================================
+// BỔ SUNG LOGIC BẬT/TẮT MENU MOBILE (Dán vào cuối file, không xóa code cũ)
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+    const mobileBtn = document.getElementById('toggleSidebarMobile');
+    const overlay = document.getElementById('sidebarOverlay');
+    const sidebar = document.querySelector('.sidebar') || document.querySelector('aside');
+
+    function openMobileMenu() {
+        if (sidebar) sidebar.classList.add('show');
+        if (overlay) overlay.classList.add('show');
+    }
+
+    function closeMobileMenu() {
+        if (sidebar) sidebar.classList.remove('show');
+        if (overlay) overlay.classList.remove('show');
+    }
+
+    if (mobileBtn) {
+        mobileBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openMobileMenu();
+        });
+    }
+
+    if (overlay) {
+        overlay.addEventListener('click', closeMobileMenu);
+    }
+
+    const menuLinks = document.querySelectorAll('.sidebar a, .sidebar button, .nav-item');
+    menuLinks.forEach(link => {
+        link.addEventListener('click', () => {
+            if (window.innerWidth <= 992) {
+                closeMobileMenu();
+            }
+        });
+    });
+});
 });
