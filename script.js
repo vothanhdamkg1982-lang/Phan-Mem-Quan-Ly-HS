@@ -3322,15 +3322,23 @@ window.addEventListener('load', () => {
 });
 });
 // ============================================================
-// CẤU HÌNH ĐĂNG NHẬP GOOGLE BẰNG SUPABASE (Dán ở cuối script.js)
+// CẤU HÌNH ĐĂNG NHẬP GOOGLE BẰNG SUPABASE (Sửa lỗi không tìm thấy Client)
 // ============================================================
 
-// 1. Hàm kích hoạt mở cửa sổ đăng nhập Google
+// Hàm lấy đúng biến Supabase Client của dự án
+function getSupabaseInstance() {
+    if (window.supabaseClient) return window.supabaseClient;
+    if (window.supabase && typeof window.supabase.auth === 'object') return window.supabase;
+    if (typeof supabase !== 'undefined' && supabase.auth) return supabase;
+    return null;
+}
+
+// 1. Hàm kích hoạt đăng nhập Google
 async function loginWithGoogle() {
     try {
-        const client = window.supabaseClient || window.supabase;
+        const client = getSupabaseInstance();
         if (!client) {
-            alert("Lỗi: Không tìm thấy Supabase client!");
+            alert("Lỗi: Chưa khởi tạo Supabase Client! Vui lòng kiểm tra lại cấu hình SDK.");
             return;
         }
 
@@ -3348,10 +3356,10 @@ async function loginWithGoogle() {
     }
 }
 
-// 2. Hàm kiểm tra phiên đăng nhập và cập nhật giao diện
+// 2. Hàm kiểm tra phiên đăng nhập & hiển thị giao diện
 async function checkAuthState() {
     try {
-        const client = window.supabaseClient || window.supabase;
+        const client = getSupabaseInstance();
         if (!client || !client.auth) return;
 
         const { data: { session } } = await client.auth.getSession();
@@ -3360,14 +3368,12 @@ async function checkAuthState() {
             const user = session.user;
             const meta = user.user_metadata || {};
 
-            // Ẩn màn hình Đăng nhập (loginScreen) và mở App chính (#app)
             const loginScreen = document.getElementById('loginScreen');
             const mainApp = document.getElementById('app');
 
             if (loginScreen) loginScreen.classList.add('hidden');
             if (mainApp) mainApp.classList.remove('hidden');
 
-            // Cập nhật tên hiển thị người dùng trên giao diện
             const userNameEls = document.querySelectorAll('.user-name, #userName, .profile-name');
             userNameEls.forEach(el => {
                 el.textContent = meta.full_name || meta.name || user.email;
@@ -3378,22 +3384,11 @@ async function checkAuthState() {
     }
 }
 
-// 3. Đăng ký sự kiện khi trang web tải xong
+// 3. Đăng ký sự kiện
 document.addEventListener('DOMContentLoaded', () => {
     checkAuthState();
 
-    const googleBtn = document.getElementById('googleLoginBtn');
-    if (googleBtn) {
-        googleBtn.addEventListener('click', loginWithGoogle);
-    }
-});
-// 3. Đăng ký sự kiện khi trang web tải xong
-document.addEventListener('DOMContentLoaded', () => {
-    // Kiểm tra phiên làm việc ngay khi vừa tải trang
-    checkAuthState();
-
-    // Lắng nghe sự kiện đăng nhập/đăng xuất từ Supabase (Xử lý chuyển hướng Google OAuth)
-    const client = window.supabaseClient || window.supabase;
+    const client = getSupabaseInstance();
     if (client && client.auth) {
         client.auth.onAuthStateChange((event, session) => {
             if (event === 'SIGNED_IN' || session) {
@@ -3402,7 +3397,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Gán sự kiện cho nút bấm Đăng nhập Google
     const googleBtn = document.getElementById('googleLoginBtn');
     if (googleBtn) {
         googleBtn.addEventListener('click', loginWithGoogle);
