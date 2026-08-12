@@ -44,54 +44,49 @@ const WHEEL_STATE = {
 function renderWheel() {
     return `
         <div class="wheel-page">
-            <div class="card">
-                <div class="flex-between mb-2">
-                    <h3 class="card-title"><i class="fas fa-dharmachakra"></i> Vòng quay may mắn</h3>
-                    <div class="flex gap-2">
-                        <button class="btn btn-secondary btn-sm" onclick="togglePresentationMode()">
-                            <i class="fas fa-expand"></i> Trình chiếu
-                        </button>
-                        <button class="btn btn-secondary btn-sm" onclick="toggleSound()">
-                            <i class="fas fa-volume-up"></i> Âm thanh
-                        </button>
-                    </div>
-                </div>
-                
-                <div class="wheel-controls">
-                    <div class="form-group" style="min-width:200px;">
-                        <label>Chọn lớp</label>
-                        <select id="wheelClassSelect" onchange="onWheelClassChange()">
+            <!-- Thanh điều khiển thu gọn trên 1 hàng -->
+            <div class="card mb-2" style="padding: 0.6rem 1rem;">
+                <div class="flex-between" style="flex-wrap: wrap; gap: 0.75rem;">
+                    
+                    <!-- Nhóm chọn lớp -->
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <i class="fas fa-dharmachakra" style="color: var(--primary); font-size: 1.2rem;"></i>
+                        <select id="wheelClassSelect" onchange="onWheelClassChange()" style="padding: 0.35rem 0.6rem; font-weight: 600;">
                             <option value="">-- Chọn lớp --</option>
                             ${APP_STATE.classes.map(c => `
                                 <option value="${c.id}" data-name="${c.name}">${c.name} - Khối ${c.grade}</option>
                             `).join('')}
                         </select>
                     </div>
-                    <div class="form-group" style="min-width:150px;">
-                        <label>Số học sinh</label>
-                        <span id="wheelStudentCount" style="font-weight:600;font-size:1.1rem;">0</span>
-                    </div>
-                    <div class="form-group" style="min-width:150px;">
-                        <label>Đã gọi</label>
-                        <span id="wheelCalledCount" style="font-weight:600;font-size:1.1rem;color:var(--success);">0</span>
-                    </div>
-                    <div class="form-group" style="min-width:150px;">
-                        <label>Còn lại</label>
-                        <span id="wheelRemainingCount" style="font-weight:600;font-size:1.1rem;color:var(--primary);">0</span>
-                    </div>
-                </div>
 
-                <div class="wheel-options">
-                    <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.9rem;cursor:pointer;">
-                        <input type="checkbox" id="wheelPreventDuplicates" checked onchange="WHEEL_STATE.preventDuplicates = this.checked">
-                        Không gọi lại học sinh đã được chọn
-                    </label>
-                    <button class="btn btn-secondary btn-sm" onclick="resetWheel()">
-                        <i class="fas fa-undo"></i> Đặt lại lượt quay
-                    </button>
+                    <!-- Thống kê nhanh -->
+                    <div style="display: flex; align-items: center; gap: 1.2rem; font-size: 0.9rem;">
+                        <span>Tổng: <strong id="wheelStudentCount">0</strong></span>
+                        <span style="color: var(--success);">Đã gọi: <strong id="wheelCalledCount">0</strong></span>
+                        <span style="color: var(--primary);">Còn lại: <strong id="wheelRemainingCount">0</strong></span>
+                    </div>
+
+                    <!-- Tùy chọn & Thao tác -->
+                    <div style="display: flex; align-items: center; gap: 0.6rem;">
+                        <label style="display: flex; align-items: center; gap: 0.3rem; font-size: 0.85rem; cursor: pointer; margin: 0;">
+                            <input type="checkbox" id="wheelPreventDuplicates" checked onchange="WHEEL_STATE.preventDuplicates = this.checked">
+                            Không trùng
+                        </label>
+                        <button class="btn btn-secondary btn-sm" onclick="resetWheel()" title="Đặt lại lượt quay">
+                            <i class="fas fa-undo"></i>
+                        </button>
+                        <button class="btn btn-secondary btn-sm" onclick="togglePresentationMode()">
+                            <i class="fas fa-expand"></i> Trình chiếu
+                        </button>
+                        <!-- NÚT VỀ TRANG CHỦ -->
+                        <button class="btn btn-primary btn-sm btn-home-mode" onclick="goHome()" title="Về trang chủ">
+                            <i class="fas fa-home"></i> Trang chủ
+                        </button>
+                    </div>
                 </div>
             </div>
 
+            <!-- Khu vực Vòng quay -->
             <div class="wheel-container ${WHEEL_STATE.presentationMode ? 'presentation-mode' : ''}">
                 <div class="wheel-stage">
                     <div class="wheel-wrapper">
@@ -123,8 +118,8 @@ function renderWheel() {
                         </div>
                     </div>
 
-                    <div class="wheel-student-list">
-                        <h4><i class="fas fa-users"></i> Danh sách tham gia</h4>
+                    <div class="student-list-container">
+                        <h4 style="margin-bottom: 0.5rem;"><i class="fas fa-users"></i> Danh sách tham gia</h4>
                         <div class="student-list-scroll" id="wheelStudentList">
                             <p class="text-muted">Vui lòng chọn lớp</p>
                         </div>
@@ -628,62 +623,85 @@ function resetWheel() {
 // PRESENTATION MODE
 // ============================================================
 
+function resizeWheelCanvas() {
+    const canvas = document.getElementById('wheelCanvas');
+    if (!canvas) return;
+    const container = canvas.parentElement;
+    if (!container) return;
+    
+    const containerWidth = container.clientWidth || 500;
+    const size = Math.min(containerWidth, 500);
+    
+    canvas.width = size;
+    canvas.height = size;
+    canvas.style.width = size + 'px';
+    canvas.style.height = size + 'px';
+    
+    WHEEL_STATE.wheelCanvas = canvas;
+    WHEEL_STATE.ctx = canvas.getContext('2d');
+    drawWheel();
+}
+function goHome() {
+    // 1. Tắt chế độ trình chiếu nếu đang mở
+    if (typeof WHEEL_STATE !== 'undefined' && WHEEL_STATE.presentationMode) {
+        togglePresentationMode();
+    }
+    // 2. Chuyển về Dashboard / Trang chủ
+    if (typeof switchPage === 'function') {
+        switchPage('dashboard'); // Nếu ứng dụng của thầy dùng hàm chuyển trang switchPage
+    } else {
+        window.location.reload(); // Hoặc tải lại trang về Dashboard
+    }
+}
+
 function togglePresentationMode() {
     WHEEL_STATE.presentationMode = !WHEEL_STATE.presentationMode;
     const container = document.querySelector('.wheel-container');
     if (container) {
         container.classList.toggle('presentation-mode');
+
+        // Tự động thêm/cập nhật duy nhất Nút Thoát ở góc trên bên phải
+        let topBar = container.querySelector('.presentation-top-bar');
+        if (WHEEL_STATE.presentationMode) {
+            if (!topBar) {
+                topBar = document.createElement('div');
+                topBar.className = 'presentation-top-bar';
+                topBar.innerHTML = `
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="togglePresentationMode()">
+                        <i class="fas fa-compress"></i> Thoát
+                    </button>
+                `;
+                container.appendChild(topBar);
+            }
+        }
     }
 
+    // Cập nhật nút bấm gốc ở giao diện điều khiển
     const btn = document.querySelector('[onclick="togglePresentationMode()"]');
     if (btn) {
-        btn.innerHTML = WHEEL_STATE.presentationMode ? 
-            '<i class="fas fa-compress"></i> Thoát' : 
+        btn.innerHTML = WHEEL_STATE.presentationMode ?
+            '<i class="fas fa-compress"></i> Thoát' :
             '<i class="fas fa-expand"></i> Trình chiếu';
     }
 
-    // Xử lý nút "Thoát trình chiếu" trong result
-    const resultDiv = document.getElementById('wheelResult');
-    if (resultDiv) {
-        let actionsDiv = resultDiv.querySelector('.result-actions');
-        if (!actionsDiv) {
-            actionsDiv = document.createElement('div');
-            actionsDiv.className = 'result-actions';
-            resultDiv.appendChild(actionsDiv);
+    // Resize canvas
+    setTimeout(() => {
+        resizeWheelCanvas();
+        if (WHEEL_STATE.currentWinner) {
+            const resultDiv = document.getElementById('wheelResult');
+            if (resultDiv) resultDiv.style.display = 'block';
+            updateWinnerAvatar(WHEEL_STATE.currentWinner);
         }
-
-        let exitBtn = actionsDiv.querySelector('.btn-exit-presentation');
-        if (WHEEL_STATE.presentationMode) {
-            if (!exitBtn) {
-                exitBtn = document.createElement('button');
-                exitBtn.className = 'btn btn-danger btn-exit-presentation';
-                exitBtn.innerHTML = '<i class="fas fa-times"></i> Thoát trình chiếu';
-                exitBtn.onclick = function() {
-                    if (WHEEL_STATE.presentationMode) {
-                        togglePresentationMode();
-                    }
-                };
-                actionsDiv.prepend(exitBtn); // Đưa lên đầu
-            }
-        } else {
-            if (exitBtn) exitBtn.remove();
-        }
-    }
-
-    setTimeout(() => initWheel(), 150);
-
-    // QUAN TRỌNG: Cập nhật ảnh khi vào trình chiếu
-    if (WHEEL_STATE.presentationMode && WHEEL_STATE.currentWinner) {
-        updateWinnerAvatar(WHEEL_STATE.currentWinner);
-    }
+    }, 100);
 }
 
 // Hàm phụ trợ cập nhật ảnh
 function updateWinnerAvatar(winner) {
+    if (!winner) return;
     const avatarImg = document.getElementById('winnerAvatar');
     if (!avatarImg) return;
 
-    let avatarUrl = winner.avatar || winner.avatar_url || DEFAULT_AVATAR;
+    let avatarUrl = winner.avatar || winner.avatar_url;
     if (typeof avatarUrl === 'object' || !avatarUrl) {
         avatarUrl = DEFAULT_AVATAR;
     }
@@ -693,6 +711,8 @@ function updateWinnerAvatar(winner) {
 
     avatarImg.src = avatarUrl;
     avatarImg.style.display = 'block';
+    avatarImg.style.visibility = 'visible';
+    avatarImg.style.opacity = '1';
     avatarImg.style.width = '100%';
     avatarImg.style.height = '100%';
     avatarImg.style.objectFit = 'cover';
@@ -718,16 +738,75 @@ function toggleSound() {
 // SOUND EFFECTS
 // ============================================================
 
-let audioContext = null;
+// ============================================================
+// AUDIO CONFIG & INITIALIZATION (LOCALSTORAGE & HTML AUDIO)
+// ============================================================
 
-function getAudioContext() {
-    if (!audioContext) {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+const AUDIO_STORAGE_KEY = 'wheelAudioConfig';
+const spinAudioPlayer = new Audio();
+const winnerAudioPlayer = new Audio();
+
+function getAudioConfig() {
+    try {
+        const stored = localStorage.getItem(AUDIO_STORAGE_KEY);
+        const defaultConfig = { 
+            spinUrl: 'assets/audio/spin.mp3', 
+            winnerUrl: 'assets/audio/winner.mp3', 
+            enabled: true 
+        };
+        return stored ? { ...defaultConfig, ...JSON.parse(stored) } : defaultConfig;
+    } catch (e) {
+        return { 
+            spinUrl: 'assets/audio/spin.mp3', 
+            winnerUrl: 'assets/audio/winner.mp3', 
+            enabled: true 
+        };
     }
-    return audioContext;
+}
+
+function saveAudioConfig(config) {
+    localStorage.setItem(AUDIO_STORAGE_KEY, JSON.stringify(config));
 }
 
 function playSpinSound() {
+    const config = getAudioConfig();
+    if (!WHEEL_STATE.audioEnabled) return;
+
+    if (config.spinUrl && config.spinUrl.trim() !== '') {
+        spinAudioPlayer.src = config.spinUrl.trim();
+        spinAudioPlayer.play().catch(err => {
+            console.warn('⚠️ Không thể phát âm thanh quay từ URL:', err);
+            playSpinSoundFallback();
+        });
+    } else {
+        playSpinSoundFallback();
+    }
+}
+function stopSpinSound() {
+    if (spinAudioPlayer) {
+        spinAudioPlayer.pause();
+        spinAudioPlayer.currentTime = 0; // Tua lại về đầu file
+    }
+}
+
+function playCelebrationSound() {
+    stopSpinSound(); // 🛑 Dừng ngay nhạc quay tại đây
+    
+    const config = getAudioConfig();
+    if (!WHEEL_STATE.audioEnabled) return;
+
+    if (config.winnerUrl && config.winnerUrl.trim() !== '') {
+        winnerAudioPlayer.src = config.winnerUrl.trim();
+        winnerAudioPlayer.play().catch(err => {
+            console.warn('⚠️ Không thể phát âm thanh chiến thắng từ URL:', err);
+            playCelebrationSoundFallback();
+        });
+    } else {
+        playCelebrationSoundFallback();
+    }
+}
+
+function playSpinSoundFallback() {
     try {
         const ctx = getAudioContext();
         const oscillator = ctx.createOscillator();
@@ -738,13 +817,13 @@ function playSpinSound() {
         oscillator.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.5);
         oscillator.type = 'sine';
         gainNode.gain.setValueAtTime(0.1, ctx.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 10);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
         oscillator.start(ctx.currentTime);
         oscillator.stop(ctx.currentTime + 0.5);
     } catch (e) {}
 }
 
-function playCelebrationSound() {
+function playCelebrationSoundFallback() {
     try {
         const ctx = getAudioContext();
         const notes = [523, 659, 784, 1047];
@@ -763,7 +842,30 @@ function playCelebrationSound() {
     } catch (e) {}
 }
 
-// ============================================================
+window.testAudioUrl = function(type) {
+    const inputId = type === 'spin' ? 'spinAudioUrlInput' : 'winnerAudioUrlInput';
+    const input = document.getElementById(inputId);
+    if (!input || !input.value.trim()) {
+        showToast('Vui lòng nhập đường dẫn URL âm thanh!', 'warning');
+        return;
+    }
+    const testAudio = new Audio(input.value.trim());
+    testAudio.play().then(() => {
+        showToast('Đang nghe thử âm thanh...', 'success');
+    }).catch(err => {
+        showToast('⚠️ Không thể phát âm thanh. Hãy kiểm tra URL.', 'error');
+    });
+};
+
+window.saveAudioSettings = function() {
+    const spinInput = document.getElementById('spinAudioUrlInput');
+    const winnerInput = document.getElementById('winnerAudioUrlInput');
+    const config = getAudioConfig();
+    config.spinUrl = spinInput ? spinInput.value.trim() : '';
+    config.winnerUrl = winnerInput ? winnerInput.value.trim() : '';
+    saveAudioConfig(config);
+    showToast('Đã lưu cấu hình âm thanh thành công!', 'success');
+};
 // CONFETTI EFFECT
 // ============================================================
 

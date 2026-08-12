@@ -1246,3 +1246,179 @@ td select, td input {
     width: 100% !important;
     height: 100% !important;
 }
+
+
+/* ============================================================
+   WHEEL - PRESENTATION MODE (CHUẨN HÓA TOÀN BỘ)
+   ============================================================ */
+
+/* 1. Thanh công cụ nút "Trang chủ" & "Thoát" ở góc trên bên phải */
+.presentation-top-bar {
+    position: fixed !important;
+    top: 15px !important;
+    right: 20px !important;
+    z-index: 10000 !important;
+    display: flex !important;
+    gap: 10px !important;
+}
+
+.presentation-top-bar .btn {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+/* 2. Khung chứa toàn bộ màn hình trình chiếu */
+.wheel-container.presentation-mode {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 9999 !important;
+    background: #0f172a !important; /* Nền tối sang trọng */
+    display: flex !important;
+    flex-direction: row !important;
+    padding: 3rem 2rem 1.5rem 2rem !important;
+    gap: 2rem !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+}
+
+/* 3. Cột trái: Vòng quay & Nút Quay */
+.wheel-container.presentation-mode .wheel-stage {
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    height: 100% !important;
+}
+
+/* 4. Cột phải: Sidebar chứa Kết quả + Danh sách */
+.wheel-container.presentation-mode .wheel-sidebar {
+    width: 380px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 1rem !important;
+    height: 100% !important;
+    max-height: calc(100vh - 4.5rem) !important;
+    box-sizing: border-box !important;
+}
+
+/* 5. Khung hiển thị kết quả chiến thắng (Phía trên) */
+.wheel-container.presentation-mode .wheel-result {
+    background: #1e293b !important;
+    border: 2px solid #3b82f6 !important;
+    border-radius: 12px !important;
+    padding: 1rem !important;
+    text-align: center !important;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5) !important;
+    flex: 0 0 auto !important; /* Không bị co ép */
+    min-height: unset !important;
+}
+
+.wheel-container.presentation-mode .result-header {
+    font-size: 1.25rem !important;
+    margin-bottom: 0.25rem !important;
+    color: #fbbf24 !important;
+}
+
+.wheel-container.presentation-mode .result-avatar {
+    width: 90px !important;
+    height: 90px !important;
+    margin: 0.5rem auto !important;
+    border: 3px solid #3b82f6 !important;
+    border-radius: 50% !important;
+    overflow: hidden !important;
+    background: #334155 !important;
+}
+
+.wheel-container.presentation-mode .result-avatar img {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+}
+
+.wheel-container.presentation-mode .result-name {
+    font-size: 1.5rem !important;
+    font-weight: 700 !important;
+    color: #ffffff !important;
+    margin: 0.25rem 0 !important;
+}
+
+.wheel-container.presentation-mode .result-class {
+    color: #94a3b8 !important;
+    font-size: 0.95rem !important;
+    margin-bottom: 0.75rem !important;
+}
+
+.wheel-container.presentation-mode .result-actions {
+    display: flex !important;
+    gap: 0.5rem !important;
+    justify-content: center !important;
+}
+
+/* 6. Khung danh sách học sinh (Phía dưới - Dãn tràn chân màn hình) */
+.wheel-container.presentation-mode .wheel-student-list,
+.wheel-container.presentation-mode .student-list-container {
+    flex: 1 1 auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+    background: #1e293b !important;
+    border: 1px solid #334155 !important;
+    border-radius: 12px !important;
+    padding: 1rem !important;
+    margin: 0 !important;
+    height: 100% !important;
+    min-height: 0 !important; /* Mẹo flexbox bắt buộc để cuộn dãn */
+    max-height: none !important;
+}
+
+.wheel-container.presentation-mode .wheel-student-list h4 {
+    color: #94a3b8 !important;
+    margin-bottom: 0.5rem !important;
+    flex: 0 0 auto !important;
+}
+
+/* Khu vực cuộn danh sách */
+.wheel-container.presentation-mode .student-list-scroll {
+    flex: 1 1 auto !important;
+    overflow-y: auto !important;
+    height: 100% !important;
+    max-height: none !important;
+    padding-right: 0.25rem !important;
+}
+
+.wheel-container.presentation-mode .student-list-scroll * {
+    color: #f1f5f9 !important;
+}
+
+.wheel-container.presentation-mode .student-item {
+    border-bottom-color: #334155 !important;
+}
+/* Mặc định ẩn hoàn toàn thanh nút Trang chủ & Thoát */
+.presentation-top-bar {
+    display: none !important;
+}
+
+/* CHỈ HIỂN THỊ khi vùng vòng quay có class presentation-mode */
+.wheel-container.presentation-mode .presentation-top-bar {
+    display: flex !important;
+    position: fixed !important;
+    top: 15px !important;
+    right: 20px !important;
+    z-index: 99999 !important;
+    gap: 10px !important;
+}
+
+.presentation-top-bar .btn {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    cursor: pointer !important;
+}
+/* Ẩn hoàn toàn nút Trang chủ trên thanh công cụ Vòng quay */
+button[onclick="goHome()"], 
+a[onclick="goHome()"],
+.btn-info[onclick*="goHome"] {
+    display: none !important;
+}
