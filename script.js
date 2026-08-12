@@ -17,6 +17,814 @@ import { supabase } from './supabase.js';
 import { migrateLocalStorageToSupabase } from './migration.js';
 
 // ============================================================
+// WHEEL MODULE - CLEAN VERSION
+// ============================================================
+
+const WHEEL_STATE = {
+    selectedClassId: null,
+    selectedClassName: '',
+    participants: [],
+    remainingStudents: [],
+    selectedStudents: [],
+    currentWinner: null,
+    preventDuplicates: true,
+    isSpinning: false,
+    presentationMode: false,
+    wheelCanvas: null,
+    ctx: null,
+    rotation: 0,
+    audioEnabled: true,
+    winnerId: null
+};
+
+// ============================================================
+// RENDER WHEEL UI
+// ============================================================
+
+function renderWheel() {
+    return `
+        <div class="wheel-page">
+            <div class="card">
+                <div class="flex-between mb-2">
+                    <h3 class="card-title"><i class="fas fa-dharmachakra"></i> Vòng quay may mắn</h3>
+                    <div class="flex gap-2">
+                        <button class="btn btn-secondary btn-sm" onclick="togglePresentationMode()">
+                            <i class="fas fa-expand"></i> Trình chiếu
+                        </button>
+                        <button class="btn btn-secondary btn-sm" onclick="toggleSound()">
+                            <i class="fas fa-volume-up"></i> Âm thanh
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="wheel-controls">
+                    <div class="form-group" style="min-width:200px;">
+                        <label>Chọn lớp</label>
+                        <select id="wheelClassSelect" onchange="onWheelClassChange()">
+                            <option value="">-- Chọn lớp --</option>
+                            ${APP_STATE.classes.map(c => `
+                                <option value="${c.id}" data-name="${c.name}">${c.name} - Khối ${c.grade}</option>
+                            `).join('')}
+                        </select>
+                    </div>
+                    <div class="form-group" style="min-width:150px;">
+                        <label>Số học sinh</label>
+                        <span id="wheelStudentCount" style="font-weight:600;font-size:1.1rem;">0</span>
+                    </div>
+                    <div class="form-group" style="min-width:150px;">
+                        <label>Đã gọi</label>
+                        <span id="wheelCalledCount" style="font-weight:600;font-size:1.1rem;color:var(--success);">0</span>
+                    </div>
+                    <div class="form-group" style="min-width:150px;">
+                        <label>Còn lại</label>
+                        <span id="wheelRemainingCount" style="font-weight:600;font-size:1.1rem;color:var(--primary);">0</span>
+                    </div>
+                </div>
+
+                <div class="wheel-options">
+                    <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.9rem;cursor:pointer;">
+                        <input type="checkbox" id="wheelPreventDuplicates" checked onchange="WHEEL_STATE.preventDuplicates = this.checked">
+                        Không gọi lại học sinh đã được chọn
+                    </label>
+                    <button class="btn btn-secondary btn-sm" onclick="resetWheel()">
+                        <i class="fas fa-undo"></i> Đặt lại lượt quay
+                    </button>
+                </div>
+            </div>
+
+            <div class="wheel-container ${WHEEL_STATE.presentationMode ? 'presentation-mode' : ''}">
+                <div class="wheel-stage">
+                    <div class="wheel-wrapper">
+                        <canvas id="wheelCanvas"></canvas>
+                        <div class="wheel-pointer">▼</div>
+                    </div>
+                    <div class="wheel-controls-center">
+                        <button class="btn btn-primary btn-lg" id="spinBtn" onclick="spinWheel()">
+                            <i class="fas fa-play"></i> QUAY
+                        </button>
+                    </div>
+                </div>
+
+                <div class="wheel-sidebar">
+                    <div class="wheel-result" id="wheelResult" style="display:none;">
+                        <div class="result-header">🎉 CHÚC MỪNG!</div>
+                        <div class="result-avatar">
+                            <img id="winnerAvatar" src="${DEFAULT_AVATAR}" alt="Avatar">
+                        </div>
+                        <div class="result-name" id="winnerName">Nguyễn Văn A</div>
+                        <div class="result-class" id="winnerClass">Lớp 3A</div>
+                        <div class="result-actions">
+                            <button class="btn btn-primary" onclick="spinWheel()">
+                                <i class="fas fa-play"></i> Quay tiếp
+                            </button>
+                            <button class="btn btn-secondary" onclick="resetWheel()">
+                                <i class="fas fa-undo"></i> Đặt lại
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="wheel-student-list">
+                        <h4><i class="fas fa-users"></i> Danh sách tham gia</h4>
+                        <div class="student-list-scroll" id="wheelStudentList">
+                            <p class="text-muted">Vui lòng chọn lớp</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function initWheel() {
+    const canvas = document.getElementById('wheelCanvas');
+    if (!canvas) return;
+    
+    const container = canvas.parentElement;
+    const containerWidth = container.clientWidth || 500;
+    const size = Math.min(containerWidth, 500);
+    
+    canvas.width = size;
+    canvas.height = size;
+    canvas.style.width = size + 'px';
+    canvas.style.height = size + 'px';
+    
+    WHEEL_STATE.wheelCanvas = canvas;
+    WHEEL_STATE.ctx = canvas.getContext('2d');
+    
+    if (WHEEL_STATE.selectedClassId) {
+        loadWheelStudents(WHEEL_STATE.selectedClassId);
+    } else {
+        drawWheel();
+    }
+    updateWheelStats();
+}
+
+function onWheelClassChange() {
+    const select = document.getElementById('wheelClassSelect');
+    const classId = select.value;
+    const option = select.options[select.selectedIndex];
+    const className = option ? option.dataset.name : '';
+    
+    if (!classId) {
+        WHEEL_STATE.selectedClassId = null;
+        WHEEL_STATE.selectedClassName = '';
+        WHEEL_STATE.participants = [];
+        WHEEL_STATE.remainingStudents = [];
+        WHEEL_STATE.selectedStudents = [];
+        WHEEL_STATE.currentWinner = null;
+        WHEEL_STATE.winnerId = null;
+        document.getElementById('wheelResult').style.display = 'none';
+        updateWheelStats();
+        renderStudentList();
+        drawWheel();
+        return;
+    }
+    
+    WHEEL_STATE.selectedClassId = classId;
+    WHEEL_STATE.selectedClassName = className;
+    WHEEL_STATE.selectedStudents = [];
+    WHEEL_STATE.currentWinner = null;
+    WHEEL_STATE.winnerId = null;
+    document.getElementById('wheelResult').style.display = 'none';
+    
+    loadWheelStudents(classId);
+}
+
+function loadWheelStudents(classId) {
+    const classObj = APP_STATE.classes.find(c => c.id === classId);
+    if (!classObj) {
+        showToast('Không tìm thấy lớp!', 'error');
+        return;
+    }
+    
+    let students = APP_STATE.students.filter(s => s.class_id === classId);
+    
+    if (students.length === 0) {
+        students = APP_STATE.students.filter(s => s.class === classObj.name || s.class_code === classObj.name);
+    }
+    
+    if (students.length === 0) {
+        WHEEL_STATE.participants = [];
+        WHEEL_STATE.remainingStudents = [];
+        WHEEL_STATE.selectedStudents = [];
+        WHEEL_STATE.currentWinner = null;
+        WHEEL_STATE.winnerId = null;
+        document.getElementById('wheelResult').style.display = 'none';
+        showToast('Lớp này chưa có học sinh.', 'warning');
+        updateWheelStats();
+        renderStudentList();
+        drawWheel();
+        return;
+    }
+    
+    // Loại bỏ trùng và sắp xếp
+    const uniqueStudents = [];
+    const seenIds = new Set();
+    students.forEach(s => {
+        if (!seenIds.has(s.id)) {
+            seenIds.add(s.id);
+            uniqueStudents.push(s);
+        }
+    });
+    uniqueStudents.sort((a, b) => a.fullName.localeCompare(b.fullName, 'vi'));
+    
+    WHEEL_STATE.participants = uniqueStudents.map(s => ({
+        ...s,
+        called: false
+    }));
+    
+    WHEEL_STATE.remainingStudents = WHEEL_STATE.participants.filter(s => !s.called);
+    WHEEL_STATE.selectedStudents = [];
+    WHEEL_STATE.currentWinner = null;
+    WHEEL_STATE.winnerId = null;
+    document.getElementById('wheelResult').style.display = 'none';
+    
+    updateWheelStats();
+    renderStudentList();
+    drawWheel();
+    
+    showToast(`Đã tải ${WHEEL_STATE.participants.length} học sinh từ lớp ${WHEEL_STATE.selectedClassName}`, 'success', 1500);
+}
+
+function renderStudentList() {
+    const container = document.getElementById('wheelStudentList');
+    if (!container) return;
+    
+    const students = WHEEL_STATE.participants;
+    
+    if (students.length === 0) {
+        container.innerHTML = '<p class="text-muted">Chưa có học sinh trong lớp này.</p>';
+        return;
+    }
+    
+    const html = students.map((s) => {
+        const isCalled = s.called || false;
+        const icon = isCalled ? '✅' : '⬜';
+        const cls = isCalled ? 'called' : '';
+        return `<div class="student-item ${cls}">
+            <span class="student-icon">${icon}</span>
+            <span class="student-name">${s.fullName}</span>
+            ${isCalled ? '<span class="badge badge-success">Đã gọi</span>' : ''}
+        </div>`;
+    }).join('');
+    
+    container.innerHTML = html;
+}
+
+function updateWheelStats() {
+    const total = WHEEL_STATE.participants.length;
+    const called = WHEEL_STATE.selectedStudents.length;
+    const remaining = WHEEL_STATE.remainingStudents.length;
+    
+    const countEl = document.getElementById('wheelStudentCount');
+    const calledEl = document.getElementById('wheelCalledCount');
+    const remainingEl = document.getElementById('wheelRemainingCount');
+    
+    if (countEl) countEl.textContent = total;
+    if (calledEl) calledEl.textContent = called;
+    if (remainingEl) remainingEl.textContent = remaining;
+}
+
+function getWheelStudents() {
+    if (WHEEL_STATE.preventDuplicates) {
+        return WHEEL_STATE.remainingStudents;
+    }
+    return WHEEL_STATE.participants;
+}
+
+// ============================================================
+// DRAW WHEEL
+// ============================================================
+
+function drawWheel() {
+    const canvas = WHEEL_STATE.wheelCanvas;
+    const ctx = WHEEL_STATE.ctx;
+    if (!canvas || !ctx) {
+        const canvasEl = document.getElementById('wheelCanvas');
+        if (canvasEl) {
+            WHEEL_STATE.wheelCanvas = canvasEl;
+            WHEEL_STATE.ctx = canvasEl.getContext('2d');
+        } else {
+            return;
+        }
+    }
+    
+    const canvas2 = WHEEL_STATE.wheelCanvas;
+    const ctx2 = WHEEL_STATE.ctx;
+    if (!canvas2 || !ctx2) return;
+    
+    const students = getWheelStudents();
+    const count = students.length;
+    
+    if (count === 0) {
+        ctx2.clearRect(0, 0, canvas2.width, canvas2.height);
+        ctx2.fillStyle = '#94a3b8';
+        ctx2.font = '24px Arial, sans-serif';
+        ctx2.textAlign = 'center';
+        ctx2.textBaseline = 'middle';
+        ctx2.fillText('Không có học sinh', canvas2.width/2, canvas2.height/2);
+        return;
+    }
+    
+    const centerX = canvas2.width / 2;
+    const centerY = canvas2.height / 2;
+    const radius = Math.min(canvas2.width, canvas2.height) / 2 - 20;
+    
+    ctx2.clearRect(0, 0, canvas2.width, canvas2.height);
+    
+    const colors = [
+        '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
+        '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9',
+        '#F8C471', '#82E0AA', '#F1948A', '#85929E', '#73C6B6',
+        '#E59866', '#AF7AC5', '#5DADE2', '#58D68D', '#F4D03F'
+    ];
+    
+    const segmentAngle = (2 * Math.PI) / count;
+    const rotation = WHEEL_STATE.rotation;
+    
+    for (let i = 0; i < count; i++) {
+        const startAngle = i * segmentAngle + rotation;
+        const endAngle = startAngle + segmentAngle;
+        
+        ctx2.beginPath();
+        ctx2.moveTo(centerX, centerY);
+        ctx2.arc(centerX, centerY, radius, startAngle, endAngle);
+        ctx2.closePath();
+        
+        ctx2.fillStyle = colors[i % colors.length];
+        ctx2.fill();
+        ctx2.strokeStyle = '#ffffff';
+        ctx2.lineWidth = 2;
+        ctx2.stroke();
+        
+        ctx2.save();
+        ctx2.translate(centerX, centerY);
+        ctx2.rotate(startAngle + segmentAngle / 2);
+        ctx2.textAlign = 'center';
+        ctx2.textBaseline = 'middle';
+        ctx2.fillStyle = '#ffffff';
+        ctx2.font = 'bold 14px Arial, sans-serif';
+        ctx2.shadowColor = 'rgba(0,0,0,0.3)';
+        ctx2.shadowBlur = 4;
+        
+        const textRadius = radius * 0.65;
+        const name = students[i].fullName;
+        const displayName = name.length > 15 ? name.substring(0, 13) + '…' : name;
+        ctx2.fillText(displayName, textRadius, 0);
+        ctx2.restore();
+    }
+    
+    ctx2.beginPath();
+    ctx2.arc(centerX, centerY, 40, 0, 2 * Math.PI);
+    ctx2.fillStyle = '#ffffff';
+    ctx2.fill();
+    ctx2.strokeStyle = '#2563eb';
+    ctx2.lineWidth = 3;
+    ctx2.stroke();
+    
+    ctx2.fillStyle = '#2563eb';
+    ctx2.font = 'bold 20px Arial';
+    ctx2.textAlign = 'center';
+    ctx2.textBaseline = 'middle';
+    ctx2.fillText('🎯', centerX, centerY);
+}
+
+// ============================================================
+// SPIN WHEEL
+// ============================================================
+
+function spinWheel() {
+    if (WHEEL_STATE.isSpinning) return;
+    
+    const students = getWheelStudents();
+    if (WHEEL_STATE.participants.length > 0 && WHEEL_STATE.remainingStudents.length === 0) {
+    showToast('🎉 Đã gọi hết học sinh trong lớp!', 'success');
+    document.getElementById('wheelResult').style.display = 'block';
+    document.getElementById('winnerName').textContent = '🎉 HOÀN THÀNH!';
+    document.getElementById('winnerClass').textContent = 'Đã gọi tất cả học sinh';
+    document.getElementById('winnerAvatar').src = DEFAULT_AVATAR;
+
+    // Hiển thị nút về trang chủ
+    const actionsDiv = document.querySelector('.result-actions');
+    if (actionsDiv) {
+        // Xóa các nút cũ để tránh trùng
+        actionsDiv.innerHTML = '';
+        const backBtn = document.createElement('button');
+        backBtn.className = 'btn btn-info';
+        backBtn.innerHTML = '<i class="fas fa-home"></i> Về trang chủ';
+        backBtn.onclick = function() {
+            renderPage('dashboard');
+            if (WHEEL_STATE.presentationMode) {
+                togglePresentationMode();
+            }
+        };
+        actionsDiv.appendChild(backBtn);
+
+        const resetBtn = document.createElement('button');
+        resetBtn.className = 'btn btn-secondary';
+        resetBtn.innerHTML = '<i class="fas fa-undo"></i> Quay lại lớp này';
+        resetBtn.onclick = function() {
+            resetWheel();
+        };
+        actionsDiv.appendChild(resetBtn);
+    }
+    return;
+}
+    
+    WHEEL_STATE.isSpinning = true;
+    const spinBtn = document.getElementById('spinBtn');
+    if (spinBtn) {
+        spinBtn.disabled = true;
+        spinBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Đang quay...';
+    }
+    
+    // Chọn ngẫu nhiên một học sinh
+    const winnerIndex = Math.floor(Math.random() * students.length);
+    const winner = students[winnerIndex];
+    
+    WHEEL_STATE.winnerId = winner.id;
+    WHEEL_STATE.currentWinner = winner;
+    
+    const segmentAngle = (2 * Math.PI) / students.length;
+    const currentRotation = WHEEL_STATE.rotation;
+    
+    // Góc trung tâm của segment winnerIndex (tính từ vị trí 0 radian)
+    const segmentCenter = winnerIndex * segmentAngle + segmentAngle / 2;
+    
+    // Góc cần để segmentCenter hướng lên trên (12 giờ tương ứng -PI/2)
+    // Công thức: rotation_final + segmentCenter ≡ -PI/2 (mod 2π)
+    // => rotation_final = -PI/2 - segmentCenter + n*2π
+    let n = 0;
+    let finalRotation;
+    do {
+        finalRotation = -Math.PI/2 - segmentCenter + n * 2 * Math.PI;
+        n++;
+    } while (finalRotation <= currentRotation + 2 * Math.PI * 3); // quay ít nhất 3 vòng
+    
+    const targetAngle = finalRotation - currentRotation;
+    const duration = 4000 + Math.random() * 1000;
+    const startTime = performance.now();
+    
+    if (WHEEL_STATE.audioEnabled) {
+        playSpinSound();
+    }
+    
+    function animateWheel(time) {
+        const elapsed = time - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        const currentRotationAnimated = currentRotation + targetAngle * eased;
+        
+        WHEEL_STATE.rotation = currentRotationAnimated;
+        drawWheel();
+        
+        if (progress < 1) {
+            requestAnimationFrame(animateWheel);
+        } else {
+            WHEEL_STATE.rotation = finalRotation;
+            drawWheel();
+            
+            setTimeout(() => {
+                const savedWinner = WHEEL_STATE.participants.find(s => s.id === WHEEL_STATE.winnerId);
+                if (savedWinner) {
+                    showWinner(savedWinner);
+                } else {
+                    showWinner(WHEEL_STATE.currentWinner);
+                }
+                WHEEL_STATE.isSpinning = false;
+                if (spinBtn) {
+                    spinBtn.disabled = false;
+                    spinBtn.innerHTML = '<i class="fas fa-play"></i> QUAY';
+                }
+            }, 300);
+        }
+    }
+    
+    requestAnimationFrame(animateWheel);
+}
+
+function showWinner(winner) {
+    if (!winner) {
+        console.error('❌ Winner is null!');
+        return;
+    }
+    
+    console.log('🎉 WINNER:', winner.fullName);
+    console.log('📸 Avatar URL:', winner.avatar || winner.avatar_url || 'Không có');
+    
+    if (WHEEL_STATE.preventDuplicates) {
+        const participant = WHEEL_STATE.participants.find(s => s.id === winner.id);
+        if (participant) {
+            participant.called = true;
+        }
+        winner.called = true;
+        
+        if (!WHEEL_STATE.selectedStudents.find(s => s.id === winner.id)) {
+            WHEEL_STATE.selectedStudents.push(winner);
+        }
+        WHEEL_STATE.remainingStudents = WHEEL_STATE.participants.filter(s => !s.called);
+    }
+    
+    WHEEL_STATE.currentWinner = winner;
+    WHEEL_STATE.winnerId = winner.id;
+    
+    // Cập nhật UI
+    const resultDiv = document.getElementById('wheelResult');
+    if (resultDiv) {
+        resultDiv.style.display = 'block';
+    }
+    
+    const nameEl = document.getElementById('winnerName');
+    if (nameEl) {
+        nameEl.textContent = winner.fullName;
+    }
+    
+    const classEl = document.getElementById('winnerClass');
+    if (classEl) {
+        classEl.textContent = `Lớp ${winner.class || winner.class_code || 'Chưa phân lớp'}`;
+    }
+    
+    // ===== XỬ LÝ ẢNH =====
+    const avatarImg = document.getElementById('winnerAvatar');
+    if (avatarImg) {
+        let avatarUrl = winner.avatar || winner.avatar_url || DEFAULT_AVATAR;
+        if (typeof avatarUrl === 'object') {
+            avatarUrl = DEFAULT_AVATAR;
+        }
+        // Nếu URL không hợp lệ, dùng mặc định
+        if (!avatarUrl || (!avatarUrl.startsWith('data:image') && !avatarUrl.startsWith('http://') && !avatarUrl.startsWith('https://'))) {
+            avatarUrl = DEFAULT_AVATAR;
+        }
+        avatarImg.src = avatarUrl;
+        avatarImg.onerror = function() {
+            console.warn('⚠️ Lỗi tải ảnh, dùng avatar mặc định');
+            this.src = DEFAULT_AVATAR;
+        };
+        // Đảm bảo ảnh hiển thị (thêm inline style để ghi đè CSS)
+        avatarImg.style.display = 'block';
+        avatarImg.style.width = '100%';
+        avatarImg.style.height = '100%';
+        avatarImg.style.objectFit = 'cover';
+        avatarImg.style.borderRadius = '50%';
+        console.log('✅ Đã set avatar src:', avatarImg.src);
+    }
+    
+    if (WHEEL_STATE.audioEnabled) {
+        playCelebrationSound();
+    }
+    
+    updateWheelStats();
+    renderStudentList();
+    createConfetti();
+    // Sau khi cập nhật giao diện, gọi hàm updateWinnerAvatar
+updateWinnerAvatar(winner);
+
+// Nếu đã gọi hết học sinh, hiển thị nút quay lại Dashboard
+if (WHEEL_STATE.remainingStudents.length === 0 && WHEEL_STATE.participants.length > 0) {
+    const actionsDiv = document.querySelector('.result-actions');
+    if (actionsDiv && !actionsDiv.querySelector('.btn-back-dashboard')) {
+        const backBtn = document.createElement('button');
+        backBtn.className = 'btn btn-info btn-back-dashboard';
+        backBtn.innerHTML = '<i class="fas fa-home"></i> Về trang chủ';
+        backBtn.onclick = function() {
+            renderPage('dashboard');
+            // Nếu đang ở chế độ trình chiếu, thoát khỏi trình chiếu
+            if (WHEEL_STATE.presentationMode) {
+                togglePresentationMode();
+            }
+        };
+        actionsDiv.appendChild(backBtn);
+    }
+}
+    showToast(`🎉 Chúc mừng ${winner.fullName}!`, 'success', 3000);
+}
+
+function resetWheel() {
+    if (WHEEL_STATE.isSpinning) return;
+    
+    const classId = WHEEL_STATE.selectedClassId;
+    if (!classId) {
+        showToast('Vui lòng chọn lớp trước.', 'warning');
+        return;
+    }
+    
+    WHEEL_STATE.selectedStudents = [];
+    WHEEL_STATE.currentWinner = null;
+    WHEEL_STATE.winnerId = null;
+    WHEEL_STATE.participants.forEach(s => s.called = false);
+    WHEEL_STATE.remainingStudents = [...WHEEL_STATE.participants];
+    
+    const resultDiv = document.getElementById('wheelResult');
+    if (resultDiv) resultDiv.style.display = 'none';
+    
+    updateWheelStats();
+    renderStudentList();
+    drawWheel();
+    
+    showToast('Đã đặt lại lượt quay!', 'success', 1500);
+}
+
+// ============================================================
+// PRESENTATION MODE
+// ============================================================
+
+function togglePresentationMode() {
+    WHEEL_STATE.presentationMode = !WHEEL_STATE.presentationMode;
+    const container = document.querySelector('.wheel-container');
+    if (container) {
+        container.classList.toggle('presentation-mode');
+    }
+
+    const btn = document.querySelector('[onclick="togglePresentationMode()"]');
+    if (btn) {
+        btn.innerHTML = WHEEL_STATE.presentationMode ? 
+            '<i class="fas fa-compress"></i> Thoát' : 
+            '<i class="fas fa-expand"></i> Trình chiếu';
+    }
+
+    // Xử lý nút "Thoát trình chiếu" trong result
+    const resultDiv = document.getElementById('wheelResult');
+    if (resultDiv) {
+        let actionsDiv = resultDiv.querySelector('.result-actions');
+        if (!actionsDiv) {
+            actionsDiv = document.createElement('div');
+            actionsDiv.className = 'result-actions';
+            resultDiv.appendChild(actionsDiv);
+        }
+
+        let exitBtn = actionsDiv.querySelector('.btn-exit-presentation');
+        if (WHEEL_STATE.presentationMode) {
+            if (!exitBtn) {
+                exitBtn = document.createElement('button');
+                exitBtn.className = 'btn btn-danger btn-exit-presentation';
+                exitBtn.innerHTML = '<i class="fas fa-times"></i> Thoát trình chiếu';
+                exitBtn.onclick = function() {
+                    if (WHEEL_STATE.presentationMode) {
+                        togglePresentationMode();
+                    }
+                };
+                actionsDiv.prepend(exitBtn); // Đưa lên đầu
+            }
+        } else {
+            if (exitBtn) exitBtn.remove();
+        }
+    }
+
+    setTimeout(() => initWheel(), 150);
+
+    // QUAN TRỌNG: Cập nhật ảnh khi vào trình chiếu
+    if (WHEEL_STATE.presentationMode && WHEEL_STATE.currentWinner) {
+        updateWinnerAvatar(WHEEL_STATE.currentWinner);
+    }
+}
+
+// Hàm phụ trợ cập nhật ảnh
+function updateWinnerAvatar(winner) {
+    const avatarImg = document.getElementById('winnerAvatar');
+    if (!avatarImg) return;
+
+    let avatarUrl = winner.avatar || winner.avatar_url || DEFAULT_AVATAR;
+    if (typeof avatarUrl === 'object' || !avatarUrl) {
+        avatarUrl = DEFAULT_AVATAR;
+    }
+    if (!avatarUrl.startsWith('data:image') && !avatarUrl.startsWith('http://') && !avatarUrl.startsWith('https://')) {
+        avatarUrl = DEFAULT_AVATAR;
+    }
+
+    avatarImg.src = avatarUrl;
+    avatarImg.style.display = 'block';
+    avatarImg.style.width = '100%';
+    avatarImg.style.height = '100%';
+    avatarImg.style.objectFit = 'cover';
+    avatarImg.style.borderRadius = '50%';
+
+    avatarImg.onerror = function() {
+        this.src = DEFAULT_AVATAR;
+    };
+}
+
+function toggleSound() {
+    WHEEL_STATE.audioEnabled = !WHEEL_STATE.audioEnabled;
+    const btn = document.querySelector('[onclick="toggleSound()"]');
+    if (btn) {
+        btn.innerHTML = WHEEL_STATE.audioEnabled ? 
+            '<i class="fas fa-volume-up"></i> Âm thanh' : 
+            '<i class="fas fa-volume-mute"></i> Âm thanh';
+    }
+    showToast(WHEEL_STATE.audioEnabled ? 'Đã bật âm thanh' : 'Đã tắt âm thanh', 'info', 1000);
+}
+
+// ============================================================
+// SOUND EFFECTS
+// ============================================================
+
+let audioContext = null;
+
+function getAudioContext() {
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    return audioContext;
+}
+
+function playSpinSound() {
+    try {
+        const ctx = getAudioContext();
+        const oscillator = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(ctx.destination);
+        oscillator.frequency.setValueAtTime(440, ctx.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.5);
+        oscillator.type = 'sine';
+        gainNode.gain.setValueAtTime(0.1, ctx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 10);
+        oscillator.start(ctx.currentTime);
+        oscillator.stop(ctx.currentTime + 0.5);
+    } catch (e) {}
+}
+
+function playCelebrationSound() {
+    try {
+        const ctx = getAudioContext();
+        const notes = [523, 659, 784, 1047];
+        notes.forEach((freq, i) => {
+            const oscillator = ctx.createOscillator();
+            const gainNode = ctx.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(ctx.destination);
+            oscillator.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.1);
+            oscillator.type = 'sine';
+            gainNode.gain.setValueAtTime(0.08, ctx.currentTime + i * 0.1);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.1 + 0.2);
+            oscillator.start(ctx.currentTime + i * 0.1);
+            oscillator.stop(ctx.currentTime + i * 0.1 + 0.2);
+        });
+    } catch (e) {}
+}
+
+// ============================================================
+// CONFETTI EFFECT
+// ============================================================
+
+function createConfetti() {
+    const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#F7DC6F'];
+    const container = document.getElementById('wheelResult');
+    if (!container) return;
+    
+    for (let i = 0; i < 30; i++) {
+        const confetti = document.createElement('div');
+        confetti.className = 'confetti-piece';
+        confetti.style.left = Math.random() * 100 + '%';
+        confetti.style.top = '-10px';
+        confetti.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+        confetti.style.width = (6 + Math.random() * 8) + 'px';
+        confetti.style.height = (6 + Math.random() * 8) + 'px';
+        confetti.style.borderRadius = Math.random() > 0.5 ? '50%' : '2px';
+        confetti.style.position = 'absolute';
+        confetti.style.animation = `confettiFall ${2 + Math.random() * 2}s linear forwards`;
+        confetti.style.animationDelay = Math.random() * 0.5 + 's';
+        confetti.style.pointerEvents = 'none';
+        container.appendChild(confetti);
+        setTimeout(() => confetti.remove(), 4000);
+    }
+}
+
+// ============================================================
+// CSS ANIMATIONS
+// ============================================================
+
+const wheelConfettiStyle = document.createElement('style');
+wheelConfettiStyle.textContent = `
+    @keyframes confettiFall {
+        0% { transform: translateY(-10px) rotate(0deg); opacity: 1; }
+        100% { transform: translateY(400px) rotate(720deg); opacity: 0; }
+    }
+`;
+document.head.appendChild(wheelConfettiStyle);
+
+// ============================================================
+// EXPOSE TO WINDOW
+// ============================================================
+
+window.renderWheel = renderWheel;
+window.initWheel = initWheel;
+window.onWheelClassChange = onWheelClassChange;
+window.loadWheelStudents = loadWheelStudents;
+window.renderStudentList = renderStudentList;
+window.updateWheelStats = updateWheelStats;
+window.getWheelStudents = getWheelStudents;
+window.drawWheel = drawWheel;
+window.spinWheel = spinWheel;
+window.showWinner = showWinner;
+window.resetWheel = resetWheel;
+window.togglePresentationMode = togglePresentationMode;
+window.toggleSound = toggleSound;
+window.createConfetti = createConfetti;
+window.playSpinSound = playSpinSound;
+window.playCelebrationSound = playCelebrationSound;
+
+// ============================================================
 // 0. AVATAR MẶC ĐỊNH (BASE64)
 // ============================================================
 const DEFAULT_AVATAR = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIiB2aWV3Qm94PSIwIDAgMTAwIDEwMCI+PHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiNlNWU3ZWIiIHJ4PSI1MCUiLz48Y2lyY2xlIGN4PSI1MCIgY3k9IjM4IiByPSIyNCIgZmlsbD0iIzhjOTU5YyIvPjxjaXJjbGUgY3g9IjUwIiBjeT0iNzUiIHI9IjI4IiBmaWxsPSIjOGM5NTljIi8+PC9zdmc+';
@@ -28,7 +836,7 @@ const APP_STATE = {
     currentPage: 'dashboard',
     students: [],
     classes: [],
-    scores: {}, // { studentId: { 'Tin học': {giuaKy1, cuoiKy1, giuaKy2, cuoiKy2}, 'Công nghệ': {...} } }
+    scores: {},
     attendance: [],
     rewards: [],
     disciplines: [],
@@ -44,7 +852,6 @@ const APP_STATE = {
     currentStudentId: null,
     darkMode: false,
     currentSubject: 'Tin học',
-    // classMap để map tên lớp với id
     classMap: {}
 };
 
@@ -54,37 +861,27 @@ const SUBJECTS = ['Tin học', 'Công nghệ'];
 // 2. FUNCTIONS TẢI DỮ LIỆU TỪ SUPABASE
 // ============================================================
 
-/**
- * Tải toàn bộ dữ liệu từ Supabase và cập nhật APP_STATE
- */
 async function loadAllData() {
     showLoading();
     try {
-        // 1. Tải classes
         const { data: classes, error: classErr } = await supabase
             .from('app3_classes')
             .select('*')
             .order('name');
         if (classErr) throw classErr;
         APP_STATE.classes = classes || [];
-        // Xây dựng classMap
         APP_STATE.classMap = {};
         APP_STATE.classes.forEach(c => { APP_STATE.classMap[c.name] = c.id; });
 
-        // 2. Tải students (kèm class name để hiển thị)
-                // 2. Tải students (kèm class name để hiển thị)
         const { data: students, error: studentErr } = await supabase
             .from('app3_students')
             .select('*, app3_classes(name)')
             .order('full_name');
         if (studentErr) throw studentErr;
         
-        // QUAN TRỌNG: Lưu UUID gốc của Supabase vào `db_uuid`
         APP_STATE.students = (students || []).map(s => ({
             ...s,
             db_uuid: s.id,
-            // --- SỬA DÒNG NÀY ---
-            // Nếu join app3_classes không ra, nó sẽ lấy dữ liệu từ s.class_code (dữ liệu backup lưu)
             class: s.app3_classes?.name || s.class_code || s.class || '', 
             id: s.student_code,
             fullName: s.full_name,
@@ -106,38 +903,33 @@ async function loadAllData() {
             class_id: s.class_id
         }));
 
-        // 3. Tải scores (dạng flat)
         const { data: scoresData, error: scoreErr } = await supabase
             .from('app3_scores')
             .select('*');
         if (scoreErr) throw scoreErr;
-        // Chuyển đổi về dạng object: { studentId: { subject: { ... } } }
         APP_STATE.scores = {};
         (scoresData || []).forEach(rec => {
             const studentUuid = rec.student_id;
-            // Tìm lại Mã HS (student_code) từ UUID vừa lấy được
             const student = APP_STATE.students.find(s => s.db_uuid === studentUuid);
             if (student) {
-                const studentId = student.id; // Lấy 'HS10001'
+                const studentId = student.id;
                 if (!APP_STATE.scores[studentId]) APP_STATE.scores[studentId] = {};
                 const subject = rec.subject;
-                                APP_STATE.scores[studentId][subject] = {
+                APP_STATE.scores[studentId][subject] = {
                     giuaKy1: rec.giua_ky_1 || '',
                     cuoiKy1: rec.cuoi_ky_1 !== null ? rec.cuoi_ky_1 : null,
                     giuaKy2: rec.giua_ky_2 || '',
                     cuoiKy2: rec.cuoi_ky_2 !== null ? rec.cuoi_ky_2 : null,
-                    competence: rec.competence || '', // Bổ sung
-                    quality: rec.quality || ''        // Bổ sung
+                    competence: rec.competence || '',
+                    quality: rec.quality || ''
                 };
             }
         });
 
-        // 4. Tải attendance
         const { data: attendance, error: attErr } = await supabase
             .from('app3_attendance')
             .select('*');
         if (attErr) throw attErr;
-        // Chuyển đổi sang cấu trúc cũ: [{ date, class, records: [{studentId, status}] }]
         APP_STATE.attendance = [];
         const attMap = {};
         (attendance || []).forEach(rec => {
@@ -160,7 +952,6 @@ async function loadAllData() {
             }
         });
 
-        // 5. Tải rewards
         const { data: rewards, error: rewErr } = await supabase
             .from('app3_rewards')
             .select('*')
@@ -168,13 +959,12 @@ async function loadAllData() {
         if (rewErr) throw rewErr;
         APP_STATE.rewards = (rewards || []).map(r => ({
             id: r.id,
-            studentId: r.student_id, // Lưu UUID của học sinh được khen
+            studentId: r.student_id,
             date: r.date,
             content: r.content,
             decisionBy: r.decision_by
         }));
 
-        // 6. Tải disciplines
         const { data: disciplines, error: discErr } = await supabase
             .from('app3_disciplines')
             .select('*')
@@ -182,13 +972,12 @@ async function loadAllData() {
         if (discErr) throw discErr;
         APP_STATE.disciplines = (disciplines || []).map(d => ({
             id: d.id,
-            studentId: d.student_id, // Lưu UUID của học sinh bị kỷ luật
+            studentId: d.student_id,
             date: d.date,
             content: d.content,
             decisionBy: d.decision_by
         }));
 
-        // 7. Tải files (metadata)
         const { data: files, error: fileErr } = await supabase
             .from('app3_files')
             .select('*')
@@ -205,7 +994,6 @@ async function loadAllData() {
             url: f.file_url
         }));
 
-        // 8. Tải settings
         const { data: settings, error: setErr } = await supabase
             .from('app3_settings')
             .select('*')
@@ -222,7 +1010,6 @@ async function loadAllData() {
             };
         }
 
-        // Cập nhật dark mode nếu có
         if (APP_STATE.settings.theme === 'dark') {
             document.documentElement.setAttribute('data-theme', 'dark');
             APP_STATE.darkMode = true;
@@ -231,9 +1018,7 @@ async function loadAllData() {
             APP_STATE.darkMode = false;
         }
 
-        // Cập nhật class counts (không cần lưu xuống DB, chỉ tính để hiển thị)
         updateClassCounts();
-
         console.log('Đã tải dữ liệu từ Supabase thành công!');
     } catch (err) {
         console.error('Lỗi tải dữ liệu:', err);
@@ -243,14 +1028,9 @@ async function loadAllData() {
     }
 }
 
-/**
- * Tính sĩ số, nam/nữ cho các lớp (chỉ để hiển thị, không lưu DB)
- */
 function updateClassCounts() {
     APP_STATE.classes.forEach(cls => {
-        // Cách đếm mới: Lọc học sinh dựa trên Tên lớp (cls.name) thay vì class_id
         const list = APP_STATE.students.filter(s => s.class === cls.name || s.class_code === cls.name);
-        
         cls.count = list.length;
         cls.male = list.filter(s => s.gender === 'Nam').length;
         cls.female = list.filter(s => s.gender === 'Nữ').length;
@@ -343,7 +1123,7 @@ function showLoading() { document.getElementById('loadingOverlay').classList.rem
 function hideLoading() { document.getElementById('loadingOverlay').classList.add('hidden'); }
 
 // ============================================================
-// 4. RENDER PAGES (giữ nguyên, không thay đổi UI)
+// 4. RENDER PAGES
 // ============================================================
 function renderPage(page) {
     APP_STATE.currentPage = page;
@@ -361,6 +1141,7 @@ function renderPage(page) {
         case 'statistics': container.innerHTML = renderStatistics(); break;
         case 'search': container.innerHTML = renderSearch(); break;
         case 'settings': container.innerHTML = renderSettings(); break;
+        case 'wheel': container.innerHTML = renderWheel(); break;
         default: container.innerHTML = '<p>Trang không tồn tại.</p>';
     }
     setTimeout(() => {
@@ -372,6 +1153,7 @@ function renderPage(page) {
         if (page === 'settings') initSettings();
         if (page === 'search') initSearch();
         if (page === 'statistics') initStatCharts();
+        if (page === 'wheel') initWheel();
     }, 50);
 }
 
@@ -387,13 +1169,14 @@ function getPageTitle(page) {
         files: 'File',
         statistics: 'Thống kê',
         search: 'Tìm kiếm',
-        settings: 'Cài đặt'
+        settings: 'Cài đặt',
+        wheel: 'Vòng quay may mắn'
     };
     return titles[page] || page;
 }
 
 // ============================================================
-// 5. DASHBOARD & CHARTS (dùng dữ liệu từ APP_STATE)
+// 5. DASHBOARD & CHARTS
 // ============================================================
 function renderDashboard() {
     const students = APP_STATE.students;
@@ -1369,7 +2152,7 @@ function importExcel(event) {
 // 9. QUẢN LÝ LỚP (CRUD với Supabase)
 // ============================================================
 function renderClasses() {
-    updateClassCounts(); // <--- CHỈ CẦN THÊM DÒNG NÀY VÀO ĐẦU HÀM
+    updateClassCounts();
     const classOptions = APP_STATE.classes.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
     return `
         <div class="card">
@@ -1634,7 +2417,6 @@ function initScoreTable() {
     }).join('');
 }
 
-// Đã sửa logic lấy UUID chính xác
 async function updateScore(studentId, field, value) {
     const subject = APP_STATE.currentSubject;
     if (!APP_STATE.scores[studentId]) {
@@ -1653,8 +2435,7 @@ async function updateScore(studentId, field, value) {
         const num = parseFloat(value);
         sc[field] = isNaN(num) ? null : num;
         updateData = { [field === 'cuoiKy1' ? 'cuoi_ky_1' : 'cuoi_ky_2']: isNaN(num) ? null : num };
-               } else if (field === 'competence' || field === 'quality') {
-        // 1. Cập nhật APP_STATE và giao diện tab Điểm ngay lập tức
+    } else if (field === 'competence' || field === 'quality') {
         if (!APP_STATE.scores[studentId]) APP_STATE.scores[studentId] = {};
         if (!APP_STATE.scores[studentId][subject]) {
             APP_STATE.scores[studentId][subject] = { giuaKy1: '', cuoiKy1: null, giuaKy2: '', cuoiKy2: null, competence: '', quality: '' };
@@ -1662,11 +2443,9 @@ async function updateScore(studentId, field, value) {
         APP_STATE.scores[studentId][subject][field] = value;
         const updatedSc = APP_STATE.scores[studentId][subject];
 
-        // Lấy UUID (để ghi vào bảng điểm) và đối tượng sinh viên
         const student = APP_STATE.students.find(s => s.id === studentId);
         if (!student) return;
 
-        // 2. Ghi xuống bảng app3_scores (Lưu theo từng môn học)
         const { error: scoreError } = await supabase
             .from('app3_scores')
             .upsert({
@@ -1686,32 +2465,29 @@ async function updateScore(studentId, field, value) {
             return;
         }
 
-        // 3. Đồng thời ghi đè xuống bảng app3_students (Để tab Học sinh hiển thị đúng)
-        student[field] = value; // Cập nhật ngay biến state -> Khi qua tab Học sinh sẽ hiện liền
+        student[field] = value;
 
         const { error: studentError } = await supabase
             .from('app3_students')
             .update({ [field]: value })
-            .eq('student_code', studentId); 
+            .eq('student_code', studentId);
 
         if (studentError) {
             console.error('Lỗi cập nhật bảng HỌC SINH:', studentError);
             showToast('Lỗi đồng bộ hồ sơ học sinh: ' + studentError.message, 'error');
         } else {
-            // Nếu lưu thành công
             showToast('Đã đồng bộ thành công Năng lực/Phẩm chất cho môn ' + subject + '!', 'success', 1500);
         }
-        return; // Kết thúc hàm
+        return;
     }
-    // Lấy UUID của học sinh để lưu vào bảng điểm (app3_scores yêu cầu UUID)
     const student = APP_STATE.students.find(s => s.id === studentId);
     if (!student) return;
 
     if (updateData && Object.keys(updateData).length) {
         const { error } = await supabase
-            .from('app3_scores') // Đã sửa đúng tên bảng điểm
+            .from('app3_scores')
             .upsert({
-                student_id: student.db_uuid, // Gửi UUID (dạng dài) đúng yêu cầu của Supabase
+                student_id: student.db_uuid,
                 subject: subject,
                 ...updateData
             }, { onConflict: 'student_id,subject' });
@@ -1799,7 +2575,6 @@ async function loadAttendance() {
                 <tbody>
     `;
     students.forEach((s, idx) => {
-        // Tìm UUID của sinh viên trong records
         const record = records.find(r => r.student_id === s.db_uuid);
         const status = record ? record.status : 'Có mặt';
         const options = statusOptions.map(opt => `<option value="${opt}" ${opt === status ? 'selected' : ''}>${opt}</option>`).join('');
@@ -1922,7 +2697,7 @@ function openAddReward() {
         <div class="form-group"><label>Người quyết định</label><input type="text" id="rewardDecision" value="Võ Thanh Đậm"></div>
     `, 'Thêm', 'Hủy').then(async confirmed => {
         if (confirmed) {
-            const studentId = document.getElementById('rewardStudent').value; // Đây là Mã HS
+            const studentId = document.getElementById('rewardStudent').value;
             const date = document.getElementById('rewardDate').value;
             const content = document.getElementById('rewardContent').value.trim();
             const decision = document.getElementById('rewardDecision').value.trim() || 'Võ Thanh Đậm';
@@ -1937,7 +2712,7 @@ function openAddReward() {
                 const { data: newReward, error } = await supabase
                     .from('app3_rewards')
                     .insert({
-                        student_id: student.db_uuid, // Gửi UUID
+                        student_id: student.db_uuid,
                         date: date,
                         content: content,
                         decision_by: decision
@@ -1947,7 +2722,7 @@ function openAddReward() {
                 if (error) throw error;
                 APP_STATE.rewards.unshift({
                     id: newReward.id,
-                    studentId: student.id, // Lưu Mã HS vào APP_STATE để dễ hiển thị
+                    studentId: student.id,
                     date: newReward.date,
                     content: newReward.content,
                     decisionBy: newReward.decision_by
@@ -2044,7 +2819,7 @@ function openAddDiscipline() {
                 const { data: newDis, error } = await supabase
                     .from('app3_disciplines')
                     .insert({
-                        student_id: student.db_uuid, // Gửi UUID
+                        student_id: student.db_uuid,
                         date: date,
                         content: content,
                         decision_by: decision
@@ -2546,17 +3321,16 @@ async function saveSettings() {
         APP_STATE.darkMode = false;
     }
     try {
-        // Đã sửa 'id: 1' thành 'config_id: 1'
-                const { error } = await supabase
+        const { error } = await supabase
             .from('app3_settings')
             .upsert({
-                config_id: 1, // Quan trọng
+                config_id: 1,
                 school_name: settings.schoolName,
                 school_year: settings.schoolYear,
                 teacher_name: settings.teacherName,
                 theme: settings.theme,
                 logo_url: settings.logo || ''
-            }, { onConflict: 'config_id' }); // Bổ sung dòng này
+            }, { onConflict: 'config_id' });
         if (error) throw error;
         showToast('Đã lưu cài đặt!');
     } catch (err) {
@@ -2751,10 +3525,8 @@ function exportClassList() {
 }
 
 function exportScoreClass() {
-    // Lấy lớp từ dropdown export
     const cls = document.getElementById('exportScoreClass')?.value;
-    // QUAN TRỌNG: Lấy môn học đang chọn từ APP_STATE thay vì gán cứng
-    const subject = APP_STATE.currentSubject; 
+    const subject = APP_STATE.currentSubject;
 
     if (!cls) {
         showToast('Vui lòng chọn lớp để xuất điểm.', 'warning');
@@ -2890,7 +3662,6 @@ async function restoreData() {
 
                 showLoading();
 
-                // --- 1. Phục hồi Lớp (app3_classes) ---
                 const classMap = {};
                 for (const cls of backup.classes) {
                     const classCode = cls.id || cls.name;
@@ -2908,7 +3679,6 @@ async function restoreData() {
                     classMap[classCode] = data.id;
                 }
 
-                // --- 2. Phục hồi Học sinh (app3_students) ---
                 const studentMap = {};
                 for (const s of backup.students) {
                     const classId = classMap[s.class];
@@ -2925,7 +3695,7 @@ async function restoreData() {
                             dob: s.dob || null,
                             gender: s.gender || null,
                             class_id: classId,
-                            class_code: s.class, // Đã thêm cột này để hiện Lớp
+                            class_code: s.class,
                             grade: s.grade || null,
                             address: s.address,
                             phone: s.phone,
@@ -2946,7 +3716,6 @@ async function restoreData() {
                     studentMap[s.id] = data.id;
                 }
 
-                // --- 3. Phục hồi Điểm (app3_scores) ---
                 for (const [studentCode, subjects] of Object.entries(backup.scores)) {
                     const studentId = studentMap[studentCode];
                     if (!studentId) continue;
@@ -2968,7 +3737,6 @@ async function restoreData() {
                     }
                 }
 
-                // --- 4. Phục hồi Điểm danh (app3_attendance) ---
                 for (const att of backup.attendance) {
                     const classCode = att.class;
                     const classId = classMap[classCode];
@@ -2990,7 +3758,6 @@ async function restoreData() {
                     }
                 }
 
-                // --- 5. Phục hồi Khen thưởng (app3_rewards) ---
                 for (const r of backup.rewards || []) {
                     const studentId = studentMap[r.studentId];
                     if (!studentId) continue;
@@ -3005,7 +3772,6 @@ async function restoreData() {
                     if (error) console.error('Lỗi insert reward:', error);
                 }
 
-                // --- 6. Phục hồi Kỷ luật (app3_disciplines) ---
                 for (const d of backup.disciplines || []) {
                     const studentId = studentMap[d.studentId];
                     if (!studentId) continue;
@@ -3020,7 +3786,6 @@ async function restoreData() {
                     if (error) console.error('Lỗi insert discipline:', error);
                 }
 
-                // --- 7. Phục hồi File (app3_files) ---
                 for (const f of backup.files || []) {
                     const { error } = await supabase
                         .from('app3_files')
@@ -3035,9 +3800,7 @@ async function restoreData() {
                     if (error) console.error('Lỗi insert file:', error);
                 }
 
-                // --- 8. Phục hồi Settings (app3_settings) ---
                 if (backup.settings) {
-                    // Đã sửa 'id: 1' thành 'config_id: 1'
                     const { error } = await supabase
                         .from('app3_settings')
                         .upsert({
@@ -3134,11 +3897,10 @@ function initNavigation() {
         if (icon) {
             icon.className = isDark ? 'fas fa-moon' : 'fas fa-sun';
         }
-        // Đã sửa 'id: 1' thành 'config_id: 1'
-         supabase.from('app3_settings').upsert({
+        supabase.from('app3_settings').upsert({
             config_id: 1, 
             theme: APP_STATE.settings.theme
-        }, { onConflict: 'config_id' }).then(({ error }) => { // Bổ sung dòng onConflict
+        }, { onConflict: 'config_id' }).then(({ error }) => {
             if (error) console.warn('Không thể lưu theme:', error);
         });
     });
@@ -3279,53 +4041,52 @@ document.addEventListener('DOMContentLoaded', function() {
     window.backupData = backupData;
     window.restoreData = restoreData;
     window.migrateLocal = migrateLocal;
+    
     // ============================================================
-// FIX LOGIC CẢM ỨNG NÚT 3 GẠCH (Dán ở cuối script.js)
-// ============================================================
-window.addEventListener('load', () => {
-    const mobileBtn = document.getElementById('toggleSidebarMobile');
-    const overlay = document.getElementById('sidebarOverlay');
-    const sidebar = document.querySelector('.sidebar') || document.querySelector('aside');
+    // FIX LOGIC CẢM ỨNG NÚT 3 GẠCH
+    // ============================================================
+    window.addEventListener('load', () => {
+        const mobileBtn = document.getElementById('toggleSidebarMobile');
+        const overlay = document.getElementById('sidebarOverlay');
+        const sidebar = document.querySelector('.sidebar') || document.querySelector('aside');
 
-    function toggleMenu(e) {
-        if (e) {
-            e.preventDefault();
-            e.stopPropagation();
+        function toggleMenu(e) {
+            if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            if (sidebar) sidebar.classList.toggle('show');
+            if (overlay) overlay.classList.toggle('show');
         }
-        if (sidebar) sidebar.classList.toggle('show');
-        if (overlay) overlay.classList.toggle('show');
-    }
 
-    function closeMenu() {
-        if (sidebar) sidebar.classList.remove('show');
-        if (overlay) overlay.classList.remove('show');
-    }
+        function closeMenu() {
+            if (sidebar) sidebar.classList.remove('show');
+            if (overlay) overlay.classList.remove('show');
+        }
 
-    if (mobileBtn) {
-        // Gán cả 2 sự kiện Click và Touchstart cho điện thoại
-        mobileBtn.addEventListener('click', toggleMenu);
-        mobileBtn.addEventListener('touchstart', toggleMenu, { passive: false });
-    }
+        if (mobileBtn) {
+            mobileBtn.addEventListener('click', toggleMenu);
+            mobileBtn.addEventListener('touchstart', toggleMenu, { passive: false });
+        }
 
-    if (overlay) {
-        overlay.addEventListener('click', closeMenu);
-        overlay.addEventListener('touchstart', closeMenu, { passive: false });
-    }
+        if (overlay) {
+            overlay.addEventListener('click', closeMenu);
+            overlay.addEventListener('touchstart', closeMenu, { passive: false });
+        }
 
-    // Tự đóng menu khi chọn tab
-    const navLinks = document.querySelectorAll('.sidebar a, aside a, .nav-item');
-    navLinks.forEach(link => {
-        link.addEventListener('click', () => {
-            if (window.innerWidth <= 992) closeMenu();
+        const navLinks = document.querySelectorAll('.sidebar a, aside a, .nav-item');
+        navLinks.forEach(link => {
+            link.addEventListener('click', () => {
+                if (window.innerWidth <= 992) closeMenu();
+            });
         });
     });
 });
-});
+
 // ============================================================
-// CẤU HÌNH ĐĂNG NHẬP GOOGLE BẰNG SUPABASE (Sửa lỗi không tìm thấy Client)
+// CẤU HÌNH ĐĂNG NHẬP GOOGLE BẰNG SUPABASE
 // ============================================================
 
-// Hàm lấy đúng biến Supabase Client của dự án
 function getSupabaseInstance() {
     if (window.supabaseClient) return window.supabaseClient;
     if (window.supabase && typeof window.supabase.auth === 'object') return window.supabase;
@@ -3333,7 +4094,6 @@ function getSupabaseInstance() {
     return null;
 }
 
-// 1. Hàm kích hoạt đăng nhập Google
 async function loginWithGoogle() {
     try {
         const client = getSupabaseInstance();
@@ -3356,7 +4116,6 @@ async function loginWithGoogle() {
     }
 }
 
-// 2. Hàm kiểm tra phiên đăng nhập & hiển thị giao diện
 async function checkAuthState() {
     try {
         const client = getSupabaseInstance();
@@ -3384,7 +4143,6 @@ async function checkAuthState() {
     }
 }
 
-// 3. Đăng ký sự kiện
 document.addEventListener('DOMContentLoaded', () => {
     checkAuthState();
 
