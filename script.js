@@ -942,6 +942,7 @@ const APP_STATE = {
     attendance: [],
     rewards: [],
     disciplines: [],
+    learningComments: [],
     files: [],
     settings: {
         schoolName: 'Trường Tiểu học Trần Quốc Toản',
@@ -1004,6 +1005,15 @@ async function loadAllData() {
             grade: s.grade,
             class_id: s.class_id
         }));
+        console.log(
+    'KIỂM TRA STUDENTS:',
+    APP_STATE.students.map(s => ({
+        db_uuid: s.db_uuid,
+        id: s.id,
+        fullName: s.fullName,
+        class_id: s.class_id
+    }))
+);
 
         const { data: scoresData, error: scoreErr } = await supabase
             .from('app3_scores')
@@ -1079,7 +1089,26 @@ async function loadAllData() {
             content: d.content,
             decisionBy: d.decision_by
         }));
+// Tải nhận xét học tập
+const { data: learningComments, error: learningCommentsErr } = await supabase
+    .from('app3_learning_comments')
+    .select('*')
+    .order('comment_datetime', { ascending: false });
 
+if (learningCommentsErr) throw learningCommentsErr;
+
+APP_STATE.learningComments = (learningComments || []).map(c => ({
+    id: c.id,
+    studentId: c.student_id,
+    classId: c.class_id,
+    commentDatetime: c.comment_datetime,
+    subject: c.subject,
+    commentType: c.comment_type,
+    content: c.content,
+    teacherName: c.teacher_name,
+    createdAt: c.created_at,
+    updatedAt: c.updated_at
+}));
         const { data: files, error: fileErr } = await supabase
             .from('app3_files')
             .select('*')
@@ -1224,9 +1253,867 @@ document.getElementById('modalClose').addEventListener('click', () => {
 function showLoading() { document.getElementById('loadingOverlay').classList.remove('hidden'); }
 function hideLoading() { document.getElementById('loadingOverlay').classList.add('hidden'); }
 
+function renderLearningComments() {
+    const comments = APP_STATE.learningComments || [];
+
+    return `
+        <div class="card">
+            <div class="flex-between mb-2">
+                <div>
+                    <h3 class="card-title">
+                        <i class="fas fa-book-open"></i>
+                        Nhận xét học tập
+                    </h3>
+
+                    <p class="text-muted">
+                        Ghi nhận quá trình tiến bộ, cố gắng hoặc những điểm cần hỗ trợ của học sinh.
+                    </p>
+                </div>
+
+                <button
+                    class="btn btn-primary btn-sm"
+                    onclick="openAddLearningComment()"
+                >
+                    <i class="fas fa-plus"></i>
+                    Thêm nhận xét
+                </button>
+            </div>
+<div class="form-group mb-2">
+    <label for="learningCommentStudentFilter">
+        <strong>Chọn học sinh</strong>
+    </label>
+
+    <select
+        id="learningCommentStudentFilter"
+        onchange="filterLearningCommentsByStudent(this.value)"
+    >
+        <option value="">-- Tất cả học sinh --</option>
+
+        ${
+            APP_STATE.students
+                .map(s => `
+                    <option value="${s.db_uuid}">
+                        ${s.fullName}
+                    </option>
+                `)
+                .join('')
+        }
+    </select>
+</div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+    <tr>
+        <th>STT</th>
+        <th>Học sinh</th>
+        <th>Thời điểm</th>
+        <th>Môn</th>
+        <th>Diễn biến</th>
+        <th>Nội dung</th>
+        <th>Thao tác</th>
+    </tr>
+</thead>
+
+                    <tbody id="learningCommentsTableBody">
+                        ${
+                            comments.length === 0
+                            ? `
+                                <tr>
+                                    <td
+                                        colspan="7"
+                                        class="text-center text-muted"
+                                    >
+                                        Chưa có nhận xét học tập nào.
+                                    </td>
+                                </tr>
+                            `
+                            : comments.map((c, index) => {
+
+                                const student = APP_STATE.students.find(
+                                    s => s.db_uuid === c.studentId
+                                );
+
+                                return `
+                                    <tr data-student-id="${c.studentId}">
+    <td>${index + 1}</td>
+
+                                        <td>
+                                            ${
+                                                student
+                                                    ? student.fullName
+                                                    : 'Không xác định'
+                                            }
+                                        </td>
+
+                                        <td>
+                                            ${
+                                                c.commentDatetime
+                                                    ? new Date(
+                                                        c.commentDatetime
+                                                      ).toLocaleString('vi-VN')
+                                                    : ''
+                                            }
+                                        </td>
+
+                                        <td>
+                                            ${c.subject || '—'}
+                                        </td>
+
+                                        <td>
+                                            ${c.commentType || '—'}
+                                        </td>
+
+                                        <td>
+                                            ${c.content || ''}
+                                        </td>
+                                        <td class="text-center">
+    <div class="action-buttons">
+
+        <button
+            class="btn btn-info btn-sm"
+            title="Xem nhận xét"
+            onclick="viewLearningComment('${c.id}')"
+        >
+            <i class="fas fa-eye"></i>
+        </button>
+
+        <button
+            class="btn btn-warning btn-sm"
+            title="Sửa nhận xét"
+            onclick="editLearningComment('${c.id}')"
+        >
+            <i class="fas fa-edit"></i>
+        </button>
+
+        <button
+            class="btn btn-danger btn-sm"
+            title="Xóa nhận xét"
+            onclick="deleteLearningComment('${c.id}')"
+        >
+            <i class="fas fa-trash"></i>
+        </button>
+
+    </div>
+</td>
+                                    </tr>
+                                `;
+                            }).join('')
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+}
+window.filterLearningCommentsByStudent = function(studentUuid) {
+    const rows = document.querySelectorAll(
+        '#learningCommentsTableBody tr[data-student-id]'
+    );
+
+    rows.forEach(row => {
+        const rowStudentId = row.getAttribute('data-student-id');
+
+        if (!studentUuid || rowStudentId === studentUuid) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+};
+function openAddLearningComment() {
+    const studentOptions = APP_STATE.students
+        .map(s => `
+            <option value="${s.db_uuid}">
+                ${s.fullName}
+            </option>
+        `)
+        .join('');
+
+    const now = new Date();
+
+    const localDate = [
+        now.getFullYear(),
+        String(now.getMonth() + 1).padStart(2, '0'),
+        String(now.getDate()).padStart(2, '0')
+    ].join('-');
+
+    const localTime = [
+        String(now.getHours()).padStart(2, '0'),
+        String(now.getMinutes()).padStart(2, '0')
+    ].join(':');
+
+    showModal(
+        'Thêm nhận xét học tập',
+        `
+            <div class="form-group">
+                <label>Chọn học sinh *</label>
+                <select id="lcStudentSelect">
+                    <option value="">-- Chọn học sinh --</option>
+                    ${studentOptions}
+                </select>
+            </div>
+
+            <div class="form-grid">
+
+                <div class="form-group">
+                    <label>Ngày *</label>
+                    <input
+                        type="date"
+                        id="lcCommentDate"
+                        value="${localDate}"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label>Thời gian *</label>
+                    <input
+                        type="time"
+                        id="lcCommentTime"
+                        value="${localTime}"
+                    >
+                </div>
+
+            </div>
+
+            <div class="form-group">
+                <label>Môn học</label>
+                <select id="lcSubjectSelect">
+                    <option value="">-- Chọn môn --</option>
+                    <option value="Tiếng Việt">Tiếng Việt</option>
+                    <option value="Toán">Toán</option>
+                    <option value="Tin học">Tin học</option>
+                    <option value="Công nghệ">Công nghệ</option>
+                    <option value="Đạo đức">Đạo đức</option>
+                    <option value="Tự nhiên và Xã hội">Tự nhiên và Xã hội</option>
+                    <option value="Khoa học">Khoa học</option>
+                    <option value="Lịch sử và Địa lí">Lịch sử và Địa lí</option>
+                    <option value="Ngoại ngữ">Ngoại ngữ</option>
+                    <option value="Khác">Khác</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Diễn biến học tập *</label>
+                <select id="lcTypeSelect">
+                    <option value="Tiến bộ">Tiến bộ</option>
+                    <option value="Cần cố gắng">Cần cố gắng</option>
+                    <option value="Học tập sa sút">Học tập sa sút</option>
+                    <option value="Nhận xét khác">Nhận xét khác</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Nội dung nhận xét *</label>
+                <textarea
+                    id="lcContent"
+                    rows="4"
+                    placeholder="Nhập nhận xét cụ thể về quá trình học tập của học sinh..."
+                ></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>Người nhận xét</label>
+                <input
+                    type="text"
+                    id="lcTeacherName"
+                    value="${
+                        APP_STATE.settings?.teacherName ||
+                        'Võ Thanh Đậm'
+                    }"
+                >
+            </div>
+        `,
+        'Thêm',
+        'Hủy'
+    ).then(async confirmed => {
+
+        if (!confirmed) return;
+
+        const studentUuid =
+            document.getElementById('lcStudentSelect')?.value;
+
+        const date =
+            document.getElementById('lcCommentDate')?.value;
+
+        const time =
+            document.getElementById('lcCommentTime')?.value;
+
+        const subject =
+            document.getElementById('lcSubjectSelect')?.value;
+
+        const type =
+            document.getElementById('lcTypeSelect')?.value;
+
+        const content =
+            document.getElementById('lcContent')?.value.trim();
+
+        const teacherName =
+            document.getElementById('lcTeacherName')?.value.trim();
+
+        if (!studentUuid || !date || !time || !content) {
+            showToast(
+                'Vui lòng nhập đầy đủ các thông tin bắt buộc!',
+                'error'
+            );
+            return;
+        }
+
+        try {
+
+            const selectedStudent = APP_STATE.students.find(
+                s => s.db_uuid === studentUuid
+            );
+
+            if (!selectedStudent) {
+                throw new Error('Không tìm thấy học sinh đã chọn.');
+            }
+
+            const commentDatetime = `${date}T${time}:00`;
+
+            const newComment = {
+                student_id: studentUuid,
+                class_id: selectedStudent.class_id || null,
+                comment_datetime: commentDatetime,
+                subject: subject || null,
+                comment_type: type,
+                content: content,
+                teacher_name: teacherName || null
+            };
+
+            console.log(
+                'Đang lưu nhận xét học tập:',
+                newComment
+            );
+
+            const { data, error } = await supabase
+                .from('app3_learning_comments')
+                .insert([newComment])
+                .select()
+                .single();
+
+            if (error) {
+                throw error;
+            }
+
+            if (!data) {
+                throw new Error(
+                    'Supabase không trả về dữ liệu nhận xét vừa tạo.'
+                );
+            }
+
+            APP_STATE.learningComments.unshift({
+                id: data.id,
+                studentId: data.student_id,
+                classId: data.class_id,
+                commentDatetime: data.comment_datetime,
+                subject: data.subject,
+                commentType: data.comment_type,
+                content: data.content,
+                teacherName: data.teacher_name,
+                createdAt: data.created_at,
+                updatedAt: data.updated_at
+            });
+
+            showToast(
+                'Thêm nhận xét học tập thành công!',
+                'success'
+            );
+
+            renderPage('learning-comments');
+
+        } catch (err) {
+
+            console.error(
+                'Lỗi thêm nhận xét học tập:',
+                err
+            );
+
+            showToast(
+                'Lỗi thêm nhận xét: ' + (
+                    err?.message || 'Không xác định'
+                ),
+                'error'
+            );
+        }
+    });
+}
+window.viewLearningComment = function(commentId) {
+
+    const comment = (APP_STATE.learningComments || [])
+        .find(c => String(c.id) === String(commentId));
+
+    if (!comment) {
+        showToast(
+            'Không tìm thấy nhận xét học tập.',
+            'error'
+        );
+        return;
+    }
+
+    const student = (APP_STATE.students || [])
+        .find(s => s.db_uuid === comment.studentId);
+
+    const studentName = student
+        ? student.fullName
+        : 'Không xác định';
+
+    let formattedDatetime = '';
+
+    if (comment.commentDatetime) {
+        const date = new Date(comment.commentDatetime);
+
+        if (!isNaN(date.getTime())) {
+            formattedDatetime =
+                date.toLocaleString('vi-VN');
+        }
+    }
+
+    showModal(
+        'Xem nhận xét học tập',
+        `
+            <div class="form-group">
+                <label><strong>Học sinh</strong></label>
+                <div>${studentName}</div>
+            </div>
+
+            <div class="form-grid">
+
+                <div class="form-group">
+                    <label><strong>Thời điểm</strong></label>
+                    <div>${formattedDatetime || '—'}</div>
+                </div>
+
+                <div class="form-group">
+                    <label><strong>Môn học</strong></label>
+                    <div>${comment.subject || '—'}</div>
+                </div>
+
+            </div>
+
+            <div class="form-group">
+                <label><strong>Diễn biến học tập</strong></label>
+                <div>${comment.commentType || '—'}</div>
+            </div>
+
+            <div class="form-group">
+                <label><strong>Nội dung nhận xét</strong></label>
+
+                <div style="
+                    padding:12px;
+                    border:1px solid var(--border);
+                    border-radius:8px;
+                    white-space:pre-wrap;
+                ">
+                    ${comment.content || ''}
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label><strong>Người nhận xét</strong></label>
+                <div>${comment.teacherName || '—'}</div>
+            </div>
+        `,
+        'Đóng',
+        ''
+    );
+};
+window.editLearningComment = function(commentId) {
+
+    const comment = (APP_STATE.learningComments || [])
+        .find(c => String(c.id) === String(commentId));
+
+    if (!comment) {
+        showToast(
+            'Không tìm thấy nhận xét cần sửa.',
+            'error'
+        );
+        return;
+    }
+
+    const studentOptions = APP_STATE.students
+        .map(s => `
+            <option
+                value="${s.db_uuid}"
+                ${s.db_uuid === comment.studentId ? 'selected' : ''}
+            >
+                ${s.fullName}
+            </option>
+        `)
+        .join('');
+
+    let dateValue = '';
+    let timeValue = '';
+
+    if (comment.commentDatetime) {
+
+        const date = new Date(comment.commentDatetime);
+
+        if (!isNaN(date.getTime())) {
+
+            dateValue = [
+                date.getFullYear(),
+                String(date.getMonth() + 1).padStart(2, '0'),
+                String(date.getDate()).padStart(2, '0')
+            ].join('-');
+
+            timeValue = [
+                String(date.getHours()).padStart(2, '0'),
+                String(date.getMinutes()).padStart(2, '0')
+            ].join(':');
+        }
+    }
+
+    showModal(
+        'Sửa nhận xét học tập',
+        `
+            <div class="form-group">
+                <label>Chọn học sinh *</label>
+
+                <select id="lcStudentSelect">
+                    <option value="">
+                        -- Chọn học sinh --
+                    </option>
+
+                    ${studentOptions}
+                </select>
+            </div>
+
+            <div class="form-grid">
+
+                <div class="form-group">
+                    <label>Ngày *</label>
+
+                    <input
+                        type="date"
+                        id="lcCommentDate"
+                        value="${dateValue}"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label>Thời gian *</label>
+
+                    <input
+                        type="time"
+                        id="lcCommentTime"
+                        value="${timeValue}"
+                    >
+                </div>
+
+            </div>
+
+            <div class="form-group">
+                <label>Môn học</label>
+
+                <select id="lcSubjectSelect">
+
+                    <option value="">-- Chọn môn --</option>
+
+                    <option value="Tiếng Việt"
+                        ${comment.subject === 'Tiếng Việt' ? 'selected' : ''}>
+                        Tiếng Việt
+                    </option>
+
+                    <option value="Toán"
+                        ${comment.subject === 'Toán' ? 'selected' : ''}>
+                        Toán
+                    </option>
+
+                    <option value="Tin học"
+                        ${comment.subject === 'Tin học' ? 'selected' : ''}>
+                        Tin học
+                    </option>
+
+                    <option value="Công nghệ"
+                        ${comment.subject === 'Công nghệ' ? 'selected' : ''}>
+                        Công nghệ
+                    </option>
+
+                    <option value="Đạo đức"
+                        ${comment.subject === 'Đạo đức' ? 'selected' : ''}>
+                        Đạo đức
+                    </option>
+
+                    <option value="Tự nhiên và Xã hội"
+                        ${comment.subject === 'Tự nhiên và Xã hội' ? 'selected' : ''}>
+                        Tự nhiên và Xã hội
+                    </option>
+
+                    <option value="Khoa học"
+                        ${comment.subject === 'Khoa học' ? 'selected' : ''}>
+                        Khoa học
+                    </option>
+
+                    <option value="Lịch sử và Địa lí"
+                        ${comment.subject === 'Lịch sử và Địa lí' ? 'selected' : ''}>
+                        Lịch sử và Địa lí
+                    </option>
+
+                    <option value="Ngoại ngữ"
+                        ${comment.subject === 'Ngoại ngữ' ? 'selected' : ''}>
+                        Ngoại ngữ
+                    </option>
+
+                    <option value="Khác"
+                        ${comment.subject === 'Khác' ? 'selected' : ''}>
+                        Khác
+                    </option>
+
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Diễn biến học tập *</label>
+
+                <select id="lcTypeSelect">
+
+                    <option value="Tiến bộ"
+                        ${comment.commentType === 'Tiến bộ' ? 'selected' : ''}>
+                        Tiến bộ
+                    </option>
+
+                    <option value="Cần cố gắng"
+                        ${comment.commentType === 'Cần cố gắng' ? 'selected' : ''}>
+                        Cần cố gắng
+                    </option>
+
+                    <option value="Học tập sa sút"
+                        ${comment.commentType === 'Học tập sa sút' ? 'selected' : ''}>
+                        Học tập sa sút
+                    </option>
+
+                    <option value="Nhận xét khác"
+                        ${comment.commentType === 'Nhận xét khác' ? 'selected' : ''}>
+                        Nhận xét khác
+                    </option>
+
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Nội dung nhận xét *</label>
+
+                <textarea
+                    id="lcContent"
+                    rows="4"
+                    placeholder="Nhập nhận xét cụ thể về quá trình học tập của học sinh..."
+                >${comment.content || ''}</textarea>
+            </div>
+
+            <div class="form-group">
+                <label>Người nhận xét</label>
+
+                <input
+                    type="text"
+                    id="lcTeacherName"
+                    value="${comment.teacherName || ''}"
+                >
+            </div>
+        `,
+        'Cập nhật',
+        'Hủy'
+    ).then(async confirmed => {
+
+        if (!confirmed) return;
+
+        const studentUuid =
+            document.getElementById('lcStudentSelect')?.value;
+
+        const date =
+            document.getElementById('lcCommentDate')?.value;
+
+        const time =
+            document.getElementById('lcCommentTime')?.value;
+
+        const subject =
+            document.getElementById('lcSubjectSelect')?.value;
+
+        const type =
+            document.getElementById('lcTypeSelect')?.value;
+
+        const content =
+            document.getElementById('lcContent')?.value.trim();
+
+        const teacherName =
+            document.getElementById('lcTeacherName')?.value.trim();
+
+        if (!studentUuid || !date || !time || !content) {
+
+            showToast(
+                'Vui lòng nhập đầy đủ các thông tin bắt buộc!',
+                'error'
+            );
+
+            return;
+        }
+
+        try {
+
+            const selectedStudent =
+                APP_STATE.students.find(
+                    s => s.db_uuid === studentUuid
+                );
+
+            if (!selectedStudent) {
+                throw new Error(
+                    'Không tìm thấy học sinh đã chọn.'
+                );
+            }
+
+            const commentDatetime =
+                `${date}T${time}:00`;
+
+            const updatedData = {
+
+                student_id: studentUuid,
+
+                class_id:
+                    selectedStudent.class_id || null,
+
+                comment_datetime:
+                    commentDatetime,
+
+                subject:
+                    subject || null,
+
+                comment_type:
+                    type,
+
+                content:
+                    content,
+
+                teacher_name:
+                    teacherName || null,
+
+                updated_at:
+                    new Date().toISOString()
+            };
+
+            const { data, error } = await supabase
+                .from('app3_learning_comments')
+                .update(updatedData)
+                .eq('id', commentId)
+                .select()
+                .single();
+
+            if (error) {
+                throw error;
+            }
+
+            if (!data) {
+                throw new Error(
+                    'Supabase không trả về dữ liệu sau khi cập nhật.'
+                );
+            }
+
+            const index =
+                APP_STATE.learningComments.findIndex(
+                    c => String(c.id) === String(commentId)
+                );
+
+            if (index !== -1) {
+
+                APP_STATE.learningComments[index] = {
+
+                    id: data.id,
+                    studentId: data.student_id,
+                    classId: data.class_id,
+                    commentDatetime: data.comment_datetime,
+                    subject: data.subject,
+                    commentType: data.comment_type,
+                    content: data.content,
+                    teacherName: data.teacher_name,
+                    createdAt: data.created_at,
+                    updatedAt: data.updated_at
+
+                };
+            }
+
+            showToast(
+                'Cập nhật nhận xét học tập thành công!',
+                'success'
+            );
+
+            renderPage('learning-comments');
+
+        } catch (err) {
+
+            console.error(
+                'Lỗi cập nhật nhận xét học tập:',
+                err
+            );
+
+            showToast(
+                'Lỗi cập nhật nhận xét: ' +
+                (err?.message || 'Không xác định'),
+                'error'
+            );
+        }
+    });
+};
+window.deleteLearningComment = async function(commentId) {
+
+    const comment =
+        (APP_STATE.learningComments || [])
+            .find(c => String(c.id) === String(commentId));
+
+    if (!comment) {
+
+        showToast(
+            'Không tìm thấy nhận xét cần xóa.',
+            'error'
+        );
+
+        return;
+    }
+
+    const confirmed = window.confirm(
+        'Bạn có chắc chắn muốn xóa nhận xét học tập này không?'
+    );
+
+    if (!confirmed) return;
+
+    try {
+
+        const { error } = await supabase
+            .from('app3_learning_comments')
+            .delete()
+            .eq('id', commentId);
+
+        if (error) {
+            throw error;
+        }
+
+        APP_STATE.learningComments =
+            APP_STATE.learningComments.filter(
+                c => String(c.id) !== String(commentId)
+            );
+
+        showToast(
+            'Đã xóa nhận xét học tập.',
+            'success'
+        );
+
+        renderPage('learning-comments');
+
+    } catch (err) {
+
+        console.error(
+            'Lỗi xóa nhận xét học tập:',
+            err
+        );
+
+        showToast(
+            'Lỗi xóa nhận xét: ' +
+            (err?.message || 'Không xác định'),
+            'error'
+        );
+    }
+};
 // ============================================================
 // 4. RENDER PAGES
 // ============================================================
+
 function renderPage(page) {
     APP_STATE.currentPage = page;
     document.getElementById('pageTitle').textContent = getPageTitle(page);
@@ -1239,6 +2126,9 @@ function renderPage(page) {
         case 'attendance': container.innerHTML = renderAttendance(); break;
         case 'rewards': container.innerHTML = renderRewards(); break;
         case 'disciplines': container.innerHTML = renderDisciplines(); break;
+        case 'learning-comments':
+    container.innerHTML = renderLearningComments();
+    break;
         case 'files': container.innerHTML = renderFiles(); break;
         case 'statistics': container.innerHTML = renderStatistics(); break;
         case 'search': container.innerHTML = renderSearch(); break;
@@ -4128,6 +5018,8 @@ document.addEventListener('DOMContentLoaded', function() {
     window.deleteReward = deleteReward;
     window.openAddDiscipline = openAddDiscipline;
     window.deleteDiscipline = deleteDiscipline;
+    window.renderLearningComments = renderLearningComments;
+    window.openAddLearningComment = openAddLearningComment;
     window.openUploadFile = openUploadFile;
     window.viewFile = viewFile;
     window.downloadFile = downloadFile;
