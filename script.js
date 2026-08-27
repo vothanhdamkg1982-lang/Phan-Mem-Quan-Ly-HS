@@ -955,6 +955,7 @@ const APP_STATE = {
     currentStudentId: null,
     darkMode: false,
     currentSubject: 'Tin học',
+    studentSubject: 'Tin học',
     classMap: {}
 };
 
@@ -965,6 +966,8 @@ const SUBJECTS = ['Tin học', 'Công nghệ'];
 // ============================================================
 
 async function loadAllData() {
+    const loadStartTime = performance.now();
+console.time('LOAD ALL DATA');
     showLoading();
     try {
         const { data: classes, error: classErr } = await supabase
@@ -1150,6 +1153,10 @@ APP_STATE.learningComments = (learningComments || []).map(c => ({
         }
 
         updateClassCounts();
+        console.timeEnd('LOAD ALL DATA');
+console.log(
+    `Tổng thời gian loadAllData: ${(performance.now() - loadStartTime).toFixed(0)} ms`
+);
         console.log('Đã tải dữ liệu từ Supabase thành công!');
     } catch (err) {
         console.error('Lỗi tải dữ liệu:', err);
@@ -2249,11 +2256,48 @@ const STUDENT_PAGE_SIZE = 10;
 let studentSort = { field: 'fullName', order: 'asc' };
 
 function renderStudents() {
+    const studentSubject = APP_STATE.studentSubject || 'Tin học';
+    const studentSubjectOptions = SUBJECTS
+        .map(subject => `<option value="${subject}" ${subject === studentSubject ? 'selected' : ''}>${subject}</option>`)
+        .join('');
     return `
         <div class="card">
             <div class="flex-between mb-2">
                 <h3 class="card-title"><i class="fas fa-user-graduate"></i> Danh sách học sinh</h3>
                 <div class="flex gap-2">
+                <div class="form-group" style="margin:0; min-width:140px;">
+    <label style="font-size:0.75rem;">Môn đánh giá</label>
+    <select
+        id="studentSubject"
+        onchange="window.switchStudentSubject(this.value)"
+        style="padding:0.3rem 0.6rem;"
+    >
+        ${studentSubjectOptions}
+    </select>
+</div>
+<div class="form-group" style="margin:0; min-width:150px;">
+    <label style="font-size:0.75rem;">Phạm vi xuất</label>
+    <select
+        id="studentExportScope"
+        style="padding:0.3rem 0.6rem;"
+    >
+        <option value="all">Tất cả học sinh</option>
+        <option value="class">Theo lớp</option>
+        <option value="selected">Học sinh đã tick</option>
+    </select>
+</div>
+<div class="form-group" style="margin:0; min-width:140px;">
+    <label style="font-size:0.75rem;">Lớp xuất</label>
+    <select
+        id="studentExportClass"
+        style="padding:0.3rem 0.6rem;"
+    >
+        <option value="">Tất cả lớp</option>
+        ${APP_STATE.classes.map(c => `
+            <option value="${c.name}">${c.name}</option>
+        `).join('')}
+    </select>
+</div>
                     <button class="btn btn-primary btn-sm" onclick="openAddStudent()"><i class="fas fa-plus"></i> Thêm</button>
                     <button class="btn btn-danger btn-sm" onclick="deleteSelectedStudents()"><i class="fas fa-trash"></i> Xóa nhiều</button>
                     <button class="btn btn-success btn-sm" onclick="exportExcel()"><i class="fas fa-file-excel"></i> Excel</button>
@@ -2293,7 +2337,14 @@ function renderStudents() {
         </div>
     `;
 }
+function switchStudentSubject(subject) {
+    if (!SUBJECTS.includes(subject)) return;
 
+    APP_STATE.studentSubject = subject;
+    studentPage = 1;
+
+    initStudentTable();
+}
 function getFilteredStudents() {
     let list = [...APP_STATE.students];
     const k = document.getElementById('studentSearch')?.value?.toLowerCase() || '';
@@ -2305,20 +2356,38 @@ function getFilteredStudents() {
     const gen = document.getElementById('filterGender')?.value || '';
     if (gen) list = list.filter(s => s.gender === gen);
     const field = studentSort.field;
-    const order = studentSort.order;
-    list.sort((a, b) => {
-        let va = a[field] || '';
-        let vb = b[field] || '';
-        if (typeof va === 'string') va = va.toLowerCase();
-        if (typeof vb === 'string') vb = vb.toLowerCase();
-        if (va < vb) return order === 'asc' ? -1 : 1;
-        if (va > vb) return order === 'asc' ? 1 : -1;
-        return 0;
-    });
+const order = studentSort.order;
+const subject = APP_STATE.studentSubject || 'Tin học';
+
+list.sort((a, b) => {
+    let va;
+    let vb;
+
+    if (field === 'competence' || field === 'quality') {
+        const evaluationA = APP_STATE.scores?.[a.id]?.[subject] || {};
+        const evaluationB = APP_STATE.scores?.[b.id]?.[subject] || {};
+
+        va = evaluationA[field] || '';
+        vb = evaluationB[field] || '';
+    } else {
+        va = a[field] || '';
+        vb = b[field] || '';
+    }
+
+    if (typeof va === 'string') va = va.toLowerCase();
+    if (typeof vb === 'string') vb = vb.toLowerCase();
+
+    if (va < vb) return order === 'asc' ? -1 : 1;
+    if (va > vb) return order === 'asc' ? 1 : -1;
+
+    return 0;
+});
     return list;
 }
 
 function initStudentTable() {
+    const subject = APP_STATE.studentSubject || 'Tin học';
+
     const list = getFilteredStudents();
     const total = list.length;
     const totalPages = Math.ceil(total / STUDENT_PAGE_SIZE);
@@ -2331,6 +2400,9 @@ function initStudentTable() {
         const stt = start + idx + 1;
         const checked = APP_STATE.selectedStudents.includes(s.id) ? 'checked' : '';
         const avatarSrc = (s.avatar && s.avatar.startsWith('data:image')) ? s.avatar : DEFAULT_AVATAR;
+        const evaluation = APP_STATE.scores?.[s.id]?.[subject] || {};
+const competence = evaluation.competence || '';
+const quality = evaluation.quality || '';
         return `<tr>
             <td><input type="checkbox" class="student-check" data-id="${s.id}" ${checked} onchange="toggleStudent('${s.id}')"></td>
             <td>${stt}</td>
@@ -2340,8 +2412,8 @@ function initStudentTable() {
             <td>${formatDate(s.dob)}</td>
             <td>${s.gender}</td>
             <td>${s.class}</td>
-            <td>${displayText(s.competence)}</td>
-            <td>${displayText(s.quality)}</td>
+            <td>${displayText(competence)}</td>
+            <td>${displayText(quality)}</td>
             <td>${getStatusBadge(s.status)}</td>
             <td>
                 <div class="table-actions">
@@ -2758,38 +2830,177 @@ function editStudent(id) {
 function viewStudent(id) {
     const s = APP_STATE.students.find(st => st.id === id);
     if (!s) return;
-    const avatarSrc = (s.avatar && s.avatar.startsWith('data:image')) ? s.avatar : DEFAULT_AVATAR;
+
+    const avatarSrc = (s.avatar && s.avatar.startsWith('data:image'))
+        ? s.avatar
+        : DEFAULT_AVATAR;
+
+    // Dữ liệu đánh giá theo từng môn của học sinh
+    const studentScores = APP_STATE.scores[s.id] || {};
+
+    // Dùng chung danh sách môn hiện tại của hệ thống
+    const subjects = [...SUBJECTS];
+
+    // Mặc định mở môn đầu tiên
+    const defaultSubject = subjects[0] || '';
+
+    // Lấy dữ liệu đánh giá của môn mặc định
+    const defaultScore = studentScores[defaultSubject] || {};
+
     const html = `
         <div class="profile-header">
-            <img src="${avatarSrc}" class="profile-avatar" id="viewAvatar" alt="avatar" style="width:100px;height:100px;border-radius:50%;object-fit:cover;border:3px solid var(--primary);">
+            <img
+                src="${avatarSrc}"
+                class="profile-avatar"
+                id="viewAvatar"
+                alt="avatar"
+                style="width:100px;height:100px;border-radius:50%;object-fit:cover;border:3px solid var(--primary);"
+            >
+
             <div class="profile-info">
                 <h2>${s.fullName}</h2>
-                <p><strong>Mã HS:</strong> ${s.id} | <strong>Lớp:</strong> ${s.class} | <strong>Khối:</strong> ${s.grade}</p>
+
+                <p>
+                    <strong>Mã HS:</strong> ${s.id}
+                    | <strong>Lớp:</strong> ${s.class}
+                    | <strong>Khối:</strong> ${s.grade}
+                </p>
+
                 <p>${getStatusBadge(s.status)}</p>
+
                 <div style="margin-top:0.5rem; display:flex; gap:0.5rem;">
-                    <button class="btn btn-primary btn-sm" onclick="downloadAvatar('${s.id}')"><i class="fas fa-download"></i> Tải ảnh</button>
+                    <button
+                        class="btn btn-primary btn-sm"
+                        onclick="downloadAvatar('${s.id}')"
+                    >
+                        <i class="fas fa-download"></i> Tải ảnh
+                    </button>
                 </div>
             </div>
         </div>
+
         <div class="form-grid">
-            <div><label>Ngày sinh</label><p><strong>${formatDate(s.dob)}</strong></p></div>
-            <div><label>Giới tính</label><p><strong>${s.gender}</strong></p></div>
-            <div><label>Địa chỉ</label><p><strong>${s.address || ''}</strong></p></div>
-            <div><label>SĐT</label><p><strong>${s.phone || ''}</strong></p></div>
-            <div><label>Email</label><p><strong>${s.email || ''}</strong></p></div>
-            <div><label>Năng lực</label><p><strong>${displayText(s.competence)}</strong></p></div>
-            <div><label>Phẩm chất</label><p><strong>${displayText(s.quality)}</strong></p></div>
-            <div><label>Ngày nhập học</label><p><strong>${formatDate(s.enrollmentDate)}</strong></p></div>
-            <div><label>Tên cha</label><p><strong>${s.fatherName || ''}</strong></p></div>
-            <div><label>Tên mẹ</label><p><strong>${s.motherName || ''}</strong></p></div>
-            <div><label>SĐT phụ huynh</label><p><strong>${s.parentPhone || ''}</strong></p></div>
-            <div><label>Ghi chú</label><p><strong>${s.note || ''}</strong></p></div>
+            <div>
+                <label>Ngày sinh</label>
+                <p><strong>${formatDate(s.dob)}</strong></p>
+            </div>
+
+            <div>
+                <label>Giới tính</label>
+                <p><strong>${s.gender}</strong></p>
+            </div>
+
+            <div>
+                <label>Địa chỉ</label>
+                <p><strong>${s.address || ''}</strong></p>
+            </div>
+
+            <div>
+                <label>SĐT</label>
+                <p><strong>${s.phone || ''}</strong></p>
+            </div>
+
+            <div>
+                <label>Email</label>
+                <p><strong>${s.email || ''}</strong></p>
+            </div>
+
+            <!-- ĐÁNH GIÁ THEO MÔN -->
+            <div class="form-group">
+                <label for="viewStudentSubject">
+                    <strong>Môn đánh giá</strong>
+                </label>
+
+                <select id="viewStudentSubject">
+                    ${
+                        subjects.map(subject => `
+                            <option
+                                value="${subject}"
+                                ${subject === defaultSubject ? 'selected' : ''}
+                            >
+                                ${subject}
+                            </option>
+                        `).join('')
+                    }
+                </select>
+            </div>
+
+            <div id="viewStudentEvaluation">
+                <div>
+                    <label>Năng lực</label>
+                    <p>
+                        <strong id="viewStudentCompetence">
+                            ${displayText(defaultScore.competence) || 'Chưa đánh giá'}
+                        </strong>
+                    </p>
+                </div>
+
+                <div>
+                    <label>Phẩm chất</label>
+                    <p>
+                        <strong id="viewStudentQuality">
+                            ${displayText(defaultScore.quality) || 'Chưa đánh giá'}
+                        </strong>
+                    </p>
+                </div>
+            </div>
+
+            <div>
+                <label>Ngày nhập học</label>
+                <p><strong>${formatDate(s.enrollmentDate)}</strong></p>
+            </div>
+
+            <div>
+                <label>Tên cha</label>
+                <p><strong>${s.fatherName || ''}</strong></p>
+            </div>
+
+            <div>
+                <label>Tên mẹ</label>
+                <p><strong>${s.motherName || ''}</strong></p>
+            </div>
+
+            <div>
+                <label>SĐT phụ huynh</label>
+                <p><strong>${s.parentPhone || ''}</strong></p>
+            </div>
+
+            <div>
+                <label>Ghi chú</label>
+                <p><strong>${s.note || ''}</strong></p>
+            </div>
         </div>
+
         <div class="flex gap-2 mt-2">
-            <button class="btn btn-primary btn-sm" onclick="printStudent('${s.id}')"><i class="fas fa-print"></i> In hồ sơ</button>
+            <button
+                class="btn btn-primary btn-sm"
+                onclick="printStudent('${s.id}')"
+            >
+                <i class="fas fa-print"></i> In hồ sơ
+            </button>
         </div>
     `;
+
     showModal('Hồ sơ học sinh', html, 'Đóng', '');
+
+    // Khi thay đổi môn, chỉ cập nhật Năng lực + Phẩm chất
+    const subjectSelect = document.getElementById('viewStudentSubject');
+    const competenceElement = document.getElementById('viewStudentCompetence');
+    const qualityElement = document.getElementById('viewStudentQuality');
+
+    if (subjectSelect && competenceElement && qualityElement) {
+        subjectSelect.addEventListener('change', function () {
+            const selectedSubject = this.value;
+
+            const score = studentScores[selectedSubject] || {};
+
+            competenceElement.textContent =
+                score.competence || 'Chưa đánh giá';
+
+            qualityElement.textContent =
+                score.quality || 'Chưa đánh giá';
+        });
+    }
 }
 
 function downloadAvatar(studentId) {
@@ -2864,30 +3075,109 @@ async function deleteSelectedStudents() {
 // 8. IMPORT / EXPORT EXCEL (học sinh)
 // ============================================================
 function exportExcel() {
-    const data = APP_STATE.students.map(s => ({
-        'Mã HS': s.id,
-        'Họ tên': s.fullName,
-        'Ngày sinh': s.dob,
-        'Giới tính': s.gender,
-        'Lớp': s.class,
-        'Khối': s.grade,
-        'Địa chỉ': s.address,
-        'SĐT': s.phone,
-        'Email': s.email,
-        'Năng lực': s.competence || '',
-        'Phẩm chất': s.quality || '',
-        'Trạng thái': s.status,
-        'Tên cha': s.fatherName || '',
-        'Tên mẹ': s.motherName || '',
-        'SĐT phụ huynh': s.parentPhone || '',
-        'Ngày nhập học': s.enrollmentDate || '',
-        'Ghi chú': s.note || ''
-    }));
+    const subject =
+    document.getElementById('studentSubject')?.value ||
+    APP_STATE.studentSubject ||
+    'Tin học';
+
+APP_STATE.studentSubject = subject;
+
+console.log('EXPORT EXCEL - MÔN ĐANG XUẤT:', subject);
+const scope =
+    document.getElementById('studentExportScope')?.value || 'all';
+
+const exportClass =
+    document.getElementById('studentExportClass')?.value || '';
+
+let studentsToExport = [...APP_STATE.students];
+
+if (scope === 'class') {
+    if (!exportClass) {
+        showToast('Vui lòng chọn lớp để xuất.', 'warning');
+        return;
+    }
+
+    studentsToExport = studentsToExport.filter(
+        s => s.class === exportClass
+    );
+}
+
+if (scope === 'selected') {
+    studentsToExport = studentsToExport.filter(
+        s => APP_STATE.selectedStudents.includes(s.id)
+    );
+
+    // Nếu đồng thời chọn lớp thì chỉ lấy học sinh đã tick thuộc lớp đó
+    if (exportClass) {
+        studentsToExport = studentsToExport.filter(
+            s => s.class === exportClass
+        );
+    }
+
+    if (studentsToExport.length === 0) {
+        showToast(
+            exportClass
+                ? `Không có học sinh nào đã tick trong lớp ${exportClass}.`
+                : 'Chưa có học sinh nào được tick để xuất.',
+            'warning'
+        );
+        return;
+    }
+}
+
+if (studentsToExport.length === 0) {
+    showToast('Không có học sinh phù hợp để xuất.', 'warning');
+    return;
+}
+
+console.log('EXPORT EXCEL:', {
+    subject,
+    scope,
+    exportClass,
+    count: studentsToExport.length,
+    students: studentsToExport.map(s => s.id)
+});
+
+    const data = studentsToExport.map(s => {
+        const evaluation = APP_STATE.scores?.[s.id]?.[subject] || {};
+
+        return {
+            'Môn đánh giá': subject,
+            'Mã HS': s.id,
+            'Họ tên': s.fullName,
+            'Ngày sinh': s.dob,
+            'Giới tính': s.gender,
+            'Lớp': s.class,
+            'Khối': s.grade,
+            'Địa chỉ': s.address,
+            'SĐT': s.phone,
+            'Email': s.email,
+            'Năng lực': evaluation.competence || '',
+            'Phẩm chất': evaluation.quality || '',
+            'Trạng thái': s.status,
+            'Tên cha': s.fatherName || '',
+            'Tên mẹ': s.motherName || '',
+            'SĐT phụ huynh': s.parentPhone || '',
+            'Ngày nhập học': s.enrollmentDate || '',
+            'Ghi chú': s.note || ''
+        };
+    });
+
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(data);
-    XLSX.utils.book_append_sheet(wb, ws, 'HocSinh');
-    XLSX.writeFile(wb, `Danh_sach_hoc_sinh_${new Date().toISOString().slice(0,10)}.xlsx`);
-    showToast('Xuất Excel thành công!');
+
+    XLSX.utils.book_append_sheet(
+    wb,
+    ws,
+    subject
+);
+
+    XLSX.writeFile(
+        wb,
+        `Danh_sach_hoc_sinh_${subject}_${new Date().toISOString().slice(0, 10)}.xlsx`
+    );
+
+    showToast(`Xuất Excel học sinh môn ${subject} thành công!`);
 }
 
 function downloadSampleExcel() {
@@ -3457,19 +3747,14 @@ async function updateScore(studentId, field, value) {
             return;
         }
 
-        student[field] = value;
+         student[field] = value;
 
-        const { error: studentError } = await supabase
-            .from('app3_students')
-            .update({ [field]: value })
-            .eq('student_code', studentId);
+        showToast(
+            `Đã lưu ${field === 'competence' ? 'Năng lực' : 'Phẩm chất'} môn ${subject}!`,
+            'success',
+            1500
+        );
 
-        if (studentError) {
-            console.error('Lỗi cập nhật bảng HỌC SINH:', studentError);
-            showToast('Lỗi đồng bộ hồ sơ học sinh: ' + studentError.message, 'error');
-        } else {
-            showToast('Đã đồng bộ thành công Năng lực/Phẩm chất cho môn ' + subject + '!', 'success', 1500);
-        }
         return;
     }
     const student = APP_STATE.students.find(s => s.id === studentId);
@@ -4285,8 +4570,7 @@ function renderSettings() {
             <hr class="my-3">
             <h4>Quản lý dữ liệu</h4>
             <div class="flex gap-2">
-                <button class="btn btn-primary" onclick="backupData()"><i class="fas fa-download"></i> Tải backup</button>
-                <button class="btn btn-warning" onclick="restoreData()"><i class="fas fa-upload"></i> Phục hồi backup</button>
+                
                 <button class="btn btn-info" onclick="migrateLocal()"><i class="fas fa-database"></i> Migrate từ localStorage</button>
             </div>
             <p class="text-muted mt-2" style="font-size:0.8rem;">
@@ -4350,6 +4634,10 @@ function printStudents() {
 function printStudent(id) {
     const s = APP_STATE.students.find(st => st.id === id);
     if (!s) return;
+    const subject = APP_STATE.studentSubject || 'Tin học';
+const evaluation = APP_STATE.scores?.[s.id]?.[subject] || {};
+const competence = evaluation.competence || '';
+const quality = evaluation.quality || '';
     const avatarSrc = (s.avatar && s.avatar.startsWith('data:image')) ? s.avatar : DEFAULT_AVATAR;
     const win = window.open('', '_blank');
     win.document.write(`
@@ -4451,8 +4739,9 @@ function printStudent(id) {
                     <tr><td class="label">Địa chỉ</td><td class="value">${s.address || ''}</td></tr>
                     <tr><td class="label">Số điện thoại</td><td class="value">${s.phone || ''}</td></tr>
                     <tr><td class="label">Email</td><td class="value">${s.email || ''}</td></tr>
-                    <tr><td class="label">Năng lực</td><td class="value">${displayText(s.competence)}</td></tr>
-                    <tr><td class="label">Phẩm chất</td><td class="value">${displayText(s.quality)}</td></tr>
+                    <tr><td class="label">Môn đánh giá</td><td class="value">${subject}</td></tr>
+<tr><td class="label">Năng lực</td><td class="value">${displayText(competence) || 'Chưa đánh giá'}</td></tr>
+<tr><td class="label">Phẩm chất</td><td class="value">${displayText(quality) || 'Chưa đánh giá'}</td></tr>
                     <tr><td class="label">Trạng thái</td><td class="value">${s.status}</td></tr>
                     <tr><td class="label">Ngày nhập học</td><td class="value">${formatDate(s.enrollmentDate)}</td></tr>
                     <tr><td class="label">Tên cha</td><td class="value">${s.fatherName || ''}</td></tr>
@@ -4588,239 +4877,7 @@ function exportDisciplines() {
     showToast('Xuất kỷ luật thành công!');
 }
 
-// ============================================================
-// 18. BACKUP & RESTORE TOÀN BỘ DỮ LIỆU
-// ============================================================
-function backupData() {
-    try {
-        const data = {
-            students: APP_STATE.students,
-            classes: APP_STATE.classes,
-            scores: APP_STATE.scores,
-            attendance: APP_STATE.attendance,
-            rewards: APP_STATE.rewards,
-            disciplines: APP_STATE.disciplines,
-            files: APP_STATE.files,
-            settings: APP_STATE.settings,
-            backedUpAt: new Date().toISOString(),
-            version: '2.0'
-        };
-        const json = JSON.stringify(data, null, 2);
-        const blob = new Blob([json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `backup_qlhs_${new Date().toISOString().slice(0,10)}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        showToast('Tải backup thành công!', 'success');
-    } catch (err) {
-        showToast('Lỗi khi tạo backup: ' + err.message, 'error');
-    }
-}
 
-async function restoreData() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
-    input.style.display = 'none';
-    document.body.appendChild(input);
-    input.click();
-
-    input.addEventListener('change', async function (e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = async function (ev) {
-            try {
-                const backup = JSON.parse(ev.target.result);
-                if (!backup.students || !backup.classes || !backup.scores) {
-                    showToast('File backup không hợp lệ!', 'error');
-                    return;
-                }
-
-                const confirm = await showModal(
-                    'Xác nhận phục hồi',
-                    `<p>Bạn sẽ thay thế toàn bộ dữ liệu hiện tại bằng dữ liệu từ backup.</p>
-                     <p><strong>Ngày backup:</strong> ${backup.backedUpAt ? new Date(backup.backedUpAt).toLocaleString() : 'Không rõ'}</p>
-                     <p>Số học sinh: ${backup.students.length}</p>
-                     <p style="color:#dc2626;">Hành động này không thể hoàn tác!</p>`,
-                    'Phục hồi',
-                    'Hủy'
-                );
-                if (!confirm) return;
-
-                showLoading();
-
-                const classMap = {};
-                for (const cls of backup.classes) {
-                    const classCode = cls.id || cls.name;
-                    const { data, error } = await supabase
-                        .from('app3_classes')
-                        .upsert({
-                            class_code: classCode,
-                            name: cls.name,
-                            grade: cls.grade,
-                            teacher: cls.teacher || 'Võ Thanh Đậm'
-                        }, { onConflict: 'class_code' })
-                        .select('id, class_code')
-                        .single();
-                    if (error) throw new Error(`Lỗi upsert class ${cls.name}: ${error.message}`);
-                    classMap[classCode] = data.id;
-                }
-
-                const studentMap = {};
-                for (const s of backup.students) {
-                    const classId = classMap[s.class];
-                    
-                    let avatarUrl = s.avatar || DEFAULT_AVATAR;
-                    if (avatarUrl && !avatarUrl.startsWith('data:image')) {
-                        avatarUrl = DEFAULT_AVATAR;
-                    }
-                    const { data, error } = await supabase
-                        .from('app3_students')
-                        .upsert({
-                            student_code: s.id,
-                            full_name: s.fullName,
-                            dob: s.dob || null,
-                            gender: s.gender || null,
-                            class_id: classId,
-                            class_code: s.class,
-                            grade: s.grade || null,
-                            address: s.address,
-                            phone: s.phone,
-                            email: s.email,
-                            father_name: s.fatherName,
-                            mother_name: s.motherName,
-                            parent_phone: s.parentPhone,
-                            competence: s.competence || null,
-                            quality: s.quality || null,
-                            enrollment_date: s.enrollmentDate || null,
-                            status: s.status || 'Đang học',
-                            note: s.note,
-                            avatar_url: avatarUrl
-                        }, { onConflict: 'student_code' })
-                        .select()
-                        .single();
-                    if (error) throw new Error(`Lỗi upsert student ${s.id}: ${error.message}`);
-                    studentMap[s.id] = data.id;
-                }
-
-                for (const [studentCode, subjects] of Object.entries(backup.scores)) {
-                    const studentId = studentMap[studentCode];
-                    if (!studentId) continue;
-                    for (const [subject, sc] of Object.entries(subjects)) {
-                        const { error } = await supabase
-                            .from('app3_scores')
-                            .upsert({
-                                student_id: studentId,
-                                subject: subject,
-                                giua_ky_1: sc.giuaKy1 || '',
-                                cuoi_ky_1: sc.cuoiKy1 !== null ? sc.cuoiKy1 : null,
-                                giua_ky_2: sc.giuaKy2 || '',
-                                cuoi_ky_2: sc.cuoiKy2 !== null ? sc.cuoiKy2 : null
-                            }, { onConflict: 'student_id,subject' });
-                        if (error) {
-                            console.error('Lỗi upsert score:', error);
-                            throw new Error(`Lỗi điểm ${studentCode}-${subject}: ${error.message}`);
-                        }
-                    }
-                }
-
-                for (const att of backup.attendance) {
-                    const classCode = att.class;
-                    const classId = classMap[classCode];
-                    if (!classId) continue;
-                    for (const rec of att.records) {
-                        const studentId = studentMap[rec.studentId];
-                        if (!studentId) continue;
-                        const { error } = await supabase
-                            .from('app3_attendance')
-                            .upsert({
-                                student_id: studentId,
-                                class_id: classId,
-                                attendance_date: att.date,
-                                status: rec.status || 'Có mặt'
-                            }, { onConflict: 'student_id,attendance_date' });
-                        if (error) {
-                            console.error('Lỗi upsert attendance:', error);
-                        }
-                    }
-                }
-
-                for (const r of backup.rewards || []) {
-                    const studentId = studentMap[r.studentId];
-                    if (!studentId) continue;
-                    const { error } = await supabase
-                        .from('app3_rewards')
-                        .insert({
-                            student_id: studentId,
-                            date: r.date,
-                            content: r.content,
-                            decision_by: r.decisionBy || 'Võ Thanh Đậm'
-                        });
-                    if (error) console.error('Lỗi insert reward:', error);
-                }
-
-                for (const d of backup.disciplines || []) {
-                    const studentId = studentMap[d.studentId];
-                    if (!studentId) continue;
-                    const { error } = await supabase
-                        .from('app3_disciplines')
-                        .insert({
-                            student_id: studentId,
-                            date: d.date,
-                            content: d.content,
-                            decision_by: d.decisionBy || 'Võ Thanh Đậm'
-                        });
-                    if (error) console.error('Lỗi insert discipline:', error);
-                }
-
-                for (const f of backup.files || []) {
-                    const { error } = await supabase
-                        .from('app3_files')
-                        .insert({
-                            file_name: f.name,
-                            file_path: f.path || `legacy/${f.id}`,
-                            file_url: f.url || null,
-                            file_type: f.type,
-                            file_size: f.size,
-                            description: f.desc || ''
-                        });
-                    if (error) console.error('Lỗi insert file:', error);
-                }
-
-                if (backup.settings) {
-                    const { error } = await supabase
-                        .from('app3_settings')
-                        .upsert({
-                            config_id: 1,
-                            school_name: backup.settings.schoolName || 'Trường Tiểu học Trần Quốc Toản',
-                            school_year: backup.settings.schoolYear || '2025-2026',
-                            teacher_name: backup.settings.teacherName || 'Võ Thanh Đậm',
-                            theme: backup.settings.theme || 'light',
-                            logo_url: backup.settings.logo || ''
-                        });
-                    if (error) console.error('Lỗi upsert settings:', error);
-                }
-
-                await loadAllData();
-                showToast('Phục hồi dữ liệu thành công!', 'success');
-                renderPage(APP_STATE.currentPage);
-
-            } catch (err) {
-                console.error('Lỗi restore:', err);
-                showToast('Lỗi phục hồi: ' + err.message, 'error');
-            } finally {
-                hideLoading();
-                document.body.removeChild(input);
-            }
-        };
-        reader.readAsText(file);
-    });
-}
 
 // ============================================================
 // 19. MIGRATION LOCALSTORAGE → SUPABASE
@@ -5002,6 +5059,7 @@ document.addEventListener('DOMContentLoaded', function() {
     window.updateScore = updateScore;
     window.saveScore = saveScore;
     window.switchSubject = switchSubject;
+    window.switchStudentSubject = switchStudentSubject;
     window.globalSearch = globalSearch;
     window.saveSettings = saveSettings;
     window.changePassword = changePassword;
@@ -5032,9 +5090,7 @@ document.addEventListener('DOMContentLoaded', function() {
     window.previewAvatar = previewAvatar;
     window.clearAvatar = clearAvatar;
     window.downloadAvatar = downloadAvatar;
-    window.backupData = backupData;
-    window.restoreData = restoreData;
-    window.migrateLocal = migrateLocal;
+        window.migrateLocal = migrateLocal;
     
     // ============================================================
     // FIX LOGIC CẢM ỨNG NÚT 3 GẠCH
