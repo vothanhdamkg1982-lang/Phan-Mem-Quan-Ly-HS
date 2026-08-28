@@ -952,18 +952,30 @@ const APP_STATE = {
         teacherName: 'Võ Thanh Đậm'
     },
     selectedStudents: [],
-    currentStudentId: null,
-    darkMode: false,
-    currentSubject: 'Tin học',
-    studentSubject: 'Tin học',
-    classMap: {},
+currentStudentId: null,
+darkMode: false,
+currentSubject: 'Tin học',
+studentSubject: 'Tin học',
+statSubject: '',
+searchSubject: '',
+classMap: {},
 subjectCatalog: []
 };
 
 const SUBJECT_CONFIG = [
+    { id: 'tieng_viet', name: 'Tiếng Việt' },
+    { id: 'toan', name: 'Toán' },
+    { id: 'dao_duc', name: 'Đạo đức' },
+    { id: 'tu_nhien_xa_hoi', name: 'Tự nhiên và Xã hội' },
+    { id: 'khoa_hoc', name: 'Khoa học' },
+    { id: 'lich_su_dia_li', name: 'Lịch sử và Địa lí' },
+    { id: 'ngoai_ngu_1', name: 'Ngoại ngữ 1' },
+    { id: 'am_nhac', name: 'Âm nhạc' },
+    { id: 'mi_thuat', name: 'Mĩ thuật' },
+    { id: 'giao_duc_the_chat', name: 'Giáo dục thể chất' },
     { id: 'tin_hoc', name: 'Tin học' },
     { id: 'cong_nghe', name: 'Công nghệ' },
-    { id: 'toan', name: 'Toán' }
+    { id: 'hoat_dong_trai_nghiem', name: 'Hoạt động trải nghiệm' }
 ];
 
 const SUBJECTS = SUBJECT_CONFIG.map(subject => subject.name);
@@ -1496,7 +1508,7 @@ function openAddLearningComment() {
         'Tự nhiên và Xã hội',
         'Khoa học',
         'Lịch sử và Địa lí',
-        'Ngoại ngữ',
+        'Ngoại ngữ 1',
         'Khác'
     ])
 ];
@@ -1847,7 +1859,7 @@ const learningCommentSubjects = [
         'Tự nhiên và Xã hội',
         'Khoa học',
         'Lịch sử và Địa lí',
-        'Ngoại ngữ',
+        'Ngoại ngữ 1',
         'Khác'
     ])
 ];
@@ -4698,10 +4710,11 @@ const qualityNotEvaluated =
     </select>
 </div>
             <div class="chart-grid">
-                <div class="chart-box"><canvas id="statGradeChart"></canvas></div>
-                <div class="chart-box"><canvas id="statGenderChart"></canvas></div>
-                <div class="chart-box"><canvas id="statCompetenceChart"></canvas></div>
-            </div>
+    <div class="chart-box"><canvas id="statGradeChart"></canvas></div>
+    <div class="chart-box"><canvas id="statGenderChart"></canvas></div>
+    <div class="chart-box"><canvas id="statCompetenceChart"></canvas></div>
+    <div class="chart-box"><canvas id="statQualityChart"></canvas></div>
+</div>
             <div class="stats-grid mt-2">
                 <div class="stat-card"><div class="stat-label">Tổng học sinh</div><div class="stat-value">${APP_STATE.students.length}</div></div>
                 <div class="stat-card"><div class="stat-label">Số lớp</div><div class="stat-value">${APP_STATE.classes.length}</div></div>
@@ -4836,6 +4849,55 @@ chartInstances.statCompetence = new Chart(
         }
     }
 );
+// Biểu đồ Phẩm chất theo môn
+const qualityMap = {};
+
+APP_STATE.students.forEach(s => {
+    const val =
+        APP_STATE.scores[s.id]?.[statSubject]?.quality ||
+        'Chưa xếp';
+
+    qualityMap[val] = (qualityMap[val] || 0) + 1;
+});
+
+const qualityLabels = Object.keys(qualityMap);
+const qualityValues = Object.values(qualityMap);
+
+if (chartInstances.statQuality) {
+    chartInstances.statQuality.destroy();
+}
+
+chartInstances.statQuality = new Chart(
+    document.getElementById('statQualityChart'),
+    {
+        type: 'pie',
+        data: {
+            labels: qualityLabels,
+            datasets: [{
+                data: qualityValues,
+                backgroundColor: colors.slice(0, qualityLabels.length),
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                title: {
+                    display: true,
+                    text: `Phẩm chất - ${statSubject}`,
+                    font: {
+                        size: 16,
+                        weight: 'bold'
+                    }
+                },
+                legend: {
+                    position: 'bottom'
+                }
+            }
+        }
+    }
+);
 }
 
 // ============================================================
@@ -4845,6 +4907,30 @@ function renderSearch() {
     return `
         <div class="card">
             <h3 class="card-title"><i class="fas fa-search"></i> Tìm kiếm nâng cao</h3>
+            <div class="form-group" style="max-width: 300px; margin-bottom: 16px;">
+    <label>Môn học</label>
+    <select id="searchSubjectSelect" onchange="switchSearchSubject(this.value)">
+        ${
+            (
+                APP_STATE.subjectCatalog?.length
+                    ? APP_STATE.subjectCatalog.map(subject => subject.name)
+                    : SUBJECTS
+            )
+            .map(subject => `
+                <option value="${subject}" ${
+                    subject === (
+                        APP_STATE.searchSubject ||
+                        APP_STATE.studentSubject ||
+                        APP_STATE.currentSubject ||
+                        SUBJECTS[0]
+                    ) ? 'selected' : ''
+                }>
+                    ${subject}
+                </option>
+            `).join('')
+        }
+    </select>
+</div>
             <div class="search-bar">
                 <input type="text" id="globalSearch" placeholder="Nhập từ khóa..." oninput="globalSearch()">
                 <select id="searchField" onchange="globalSearch()"><option value="all">Tất cả</option><option value="id">Mã HS</option><option value="fullName">Họ tên</option><option value="class">Lớp</option><option value="grade">Khối</option><option value="competence">Năng lực</option><option value="quality">Phẩm chất</option></select>
@@ -4854,41 +4940,133 @@ function renderSearch() {
         </div>
     `;
 }
+function switchSearchSubject(subject) {
+    const availableSubjects =
+        APP_STATE.subjectCatalog?.length
+            ? APP_STATE.subjectCatalog.map(item => item.name)
+            : SUBJECTS;
 
+    if (!availableSubjects.includes(subject)) return;
+
+    APP_STATE.searchSubject = subject;
+
+    console.log('MÔN TÌM KIẾM:', subject);
+    globalSearch();
+}
 function globalSearch() {
-    const kw = document.getElementById('globalSearch')?.value?.toLowerCase() || '';
-    const field = document.getElementById('searchField')?.value || 'all';
-    const container = document.getElementById('searchResults');
+    const kw =
+        document.getElementById('globalSearch')?.value?.toLowerCase() || '';
+
+    const field =
+        document.getElementById('searchField')?.value || 'all';
+
+    const container =
+        document.getElementById('searchResults');
+
     if (!container) return;
-    if (!kw) { container.innerHTML = '<p class="text-muted">Nhập từ khóa để tìm kiếm.</p>'; return; }
-    let results = APP_STATE.students.filter(s => {
-        if (field === 'all') {
-            return s.fullName.toLowerCase().includes(kw) || s.id.toLowerCase().includes(kw) || s.class.toLowerCase().includes(kw) || s.grade.includes(kw) || (s.competence && s.competence.toLowerCase().includes(kw)) || (s.quality && s.quality.toLowerCase().includes(kw));
-        }
-        return String(s[field] || '').toLowerCase().includes(kw);
-    });
-    if (results.length === 0) {
-        container.innerHTML = '<p class="text-muted">Không tìm thấy kết quả.</p>';
+
+    if (!kw) {
+        container.innerHTML =
+            '<p class="text-muted">Nhập từ khóa để tìm kiếm.</p>';
         return;
     }
+
+    // Xác định môn học đang được chọn tại trang Tìm kiếm
+    const searchSubject =
+        APP_STATE.searchSubject ||
+        APP_STATE.studentSubject ||
+        APP_STATE.currentSubject ||
+        APP_STATE.subjectCatalog?.[0]?.name ||
+        SUBJECTS[0] ||
+        'Tin học';
+
+    APP_STATE.searchSubject = searchSubject;
+
+    // Tìm kiếm học sinh
+    const results = APP_STATE.students.filter(s => {
+        const subjectScore =
+            APP_STATE.scores[s.id]?.[searchSubject] || {};
+
+        const competence =
+            subjectScore.competence || '';
+
+        const quality =
+            subjectScore.quality || '';
+
+        // Tìm trong tất cả các trường
+        if (field === 'all') {
+            return (
+                String(s.fullName || '').toLowerCase().includes(kw) ||
+                String(s.id || '').toLowerCase().includes(kw) ||
+                String(s.class || '').toLowerCase().includes(kw) ||
+                String(s.grade || '').toLowerCase().includes(kw) ||
+                competence.toLowerCase().includes(kw) ||
+                quality.toLowerCase().includes(kw)
+            );
+        }
+
+        // Tìm riêng theo Năng lực
+        if (field === 'competence') {
+            return competence.toLowerCase().includes(kw);
+        }
+
+        // Tìm riêng theo Phẩm chất
+        if (field === 'quality') {
+            return quality.toLowerCase().includes(kw);
+        }
+
+        // Các trường thông tin học sinh khác giữ nguyên logic
+        return String(s[field] || '')
+            .toLowerCase()
+            .includes(kw);
+    });
+
+    if (results.length === 0) {
+        container.innerHTML =
+            '<p class="text-muted">Không tìm thấy kết quả.</p>';
+        return;
+    }
+
+    // Hiển thị kết quả theo đúng môn đang chọn
     container.innerHTML = `
         <div class="table-wrapper">
             <table>
-                <thead><tr><th>STT</th><th>Mã HS</th><th>Họ tên</th><th>Lớp</th><th>Năng lực</th><th>Phẩm chất</th><th>Trạng thái</th></tr></thead>
-                <tbody>${results.map((s, i) => `
+                <thead>
                     <tr>
-                        <td>${i + 1}</td>
-                        <td>${s.id}</td>
-                        <td>${s.fullName}</td>
-                        <td>${s.class}</td>
-                        <td>${displayText(s.competence)}</td>
-                        <td>${displayText(s.quality)}</td>
-                        <td>${getStatusBadge(s.status)}</td>
+                        <th>STT</th>
+                        <th>Mã HS</th>
+                        <th>Họ tên</th>
+                        <th>Lớp</th>
+                        <th>Năng lực - ${searchSubject}</th>
+                        <th>Phẩm chất - ${searchSubject}</th>
+                        <th>Trạng thái</th>
                     </tr>
-                `).join('')}</tbody>
+                </thead>
+
+                <tbody>
+                    ${results.map((s, i) => {
+                        const subjectScore =
+                            APP_STATE.scores[s.id]?.[searchSubject] || {};
+
+                        return `
+                            <tr>
+                                <td>${i + 1}</td>
+                                <td>${s.id}</td>
+                                <td>${s.fullName}</td>
+                                <td>${s.class}</td>
+                                <td>${displayText(subjectScore.competence)}</td>
+                                <td>${displayText(subjectScore.quality)}</td>
+                                <td>${getStatusBadge(s.status)}</td>
+                            </tr>
+                        `;
+                    }).join('')}
+                </tbody>
             </table>
         </div>
-        <p class="text-muted mt-2">Tìm thấy ${results.length} kết quả.</p>
+
+        <p class="text-muted mt-2">
+            Tìm thấy ${results.length} kết quả - Môn: ${searchSubject}
+        </p>
     `;
 }
 
@@ -5119,7 +5297,17 @@ function exportClassList() {
         showToast('Lớp này chưa có học sinh.', 'warning');
         return;
     }
-    const data = students.map(s => ({
+    const subject =
+    APP_STATE.studentSubject ||
+    APP_STATE.currentSubject ||
+    APP_STATE.subjectCatalog?.[0]?.name ||
+    SUBJECTS[0] ||
+    'Tin học';
+    const data = students.map(s => {
+    const subjectScore =
+        APP_STATE.scores[s.id]?.[subject] || {};
+
+    return {
         'Mã HS': s.id,
         'Họ tên': s.fullName,
         'Ngày sinh': s.dob,
@@ -5129,15 +5317,16 @@ function exportClassList() {
         'Địa chỉ': s.address,
         'SĐT': s.phone,
         'Email': s.email,
-        'Năng lực': s.competence || '',
-        'Phẩm chất': s.quality || '',
+        'Năng lực': subjectScore.competence || '',
+        'Phẩm chất': subjectScore.quality || '',
         'Trạng thái': s.status,
         'Tên cha': s.fatherName || '',
         'Tên mẹ': s.motherName || '',
         'SĐT phụ huynh': s.parentPhone || '',
         'Ngày nhập học': s.enrollmentDate || '',
         'Ghi chú': s.note || ''
-    }));
+    };
+});
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(data);
     XLSX.utils.book_append_sheet(wb, ws, 'DanhSachLop');
@@ -5411,7 +5600,7 @@ document.addEventListener('DOMContentLoaded', function() {
     window.clearAvatar = clearAvatar;
     window.downloadAvatar = downloadAvatar;
     window.switchStatSubject = switchStatSubject;
-    
+    window.switchSearchSubject = switchSearchSubject;
     // ============================================================
     // FIX LOGIC CẢM ỨNG NÚT 3 GẠCH
     // ============================================================
