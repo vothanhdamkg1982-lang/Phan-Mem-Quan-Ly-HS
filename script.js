@@ -14,7 +14,7 @@
  * ============================================================
  */
 import { supabase } from './supabase.js';
-import { migrateLocalStorageToSupabase } from './migration.js';
+
 
 // ============================================================
 // WHEEL MODULE - CLEAN VERSION
@@ -956,10 +956,30 @@ const APP_STATE = {
     darkMode: false,
     currentSubject: 'Tin học',
     studentSubject: 'Tin học',
-    classMap: {}
+    classMap: {},
+subjectCatalog: []
 };
 
-const SUBJECTS = ['Tin học', 'Công nghệ'];
+const SUBJECT_CONFIG = [
+    { id: 'tin_hoc', name: 'Tin học' },
+    { id: 'cong_nghe', name: 'Công nghệ' },
+    { id: 'toan', name: 'Toán' }
+];
+
+const SUBJECTS = SUBJECT_CONFIG.map(subject => subject.name);
+function getSubjectId(subjectName) {
+    const catalogSubject = APP_STATE.subjectCatalog?.find(
+        subject => subject.name === subjectName
+    );
+
+    if (catalogSubject?.id) {
+        return catalogSubject.id;
+    }
+
+    return SUBJECT_CONFIG.find(
+        subject => subject.name === subjectName
+    )?.id || null;
+}
 
 // ============================================================
 // 2. FUNCTIONS TẢI DỮ LIỆU TỪ SUPABASE
@@ -970,6 +990,43 @@ async function loadAllData() {
 console.time('LOAD ALL DATA');
     showLoading();
     try {
+                try {
+            const { data: subjectsData, error: subjectsErr } = await supabase
+                .from('app3_subjects')
+                .select('id, name, grades, active')
+                .eq('active', true);
+
+            if (subjectsErr) throw subjectsErr;
+
+            APP_STATE.subjectCatalog = subjectsData || [];
+
+            console.log(
+                'DANH MỤC MÔN HỌC:',
+                APP_STATE.subjectCatalog
+            );
+        } catch (subjectLoadError) {
+            console.warn(
+                'Không tải được app3_subjects, tiếp tục dùng cấu hình môn mặc định:',
+                subjectLoadError
+            );
+
+            APP_STATE.subjectCatalog = SUBJECT_CONFIG;
+        }
+        const availableSubjectNames =
+    APP_STATE.subjectCatalog?.map(subject => subject.name) || [];
+
+if (
+    availableSubjectNames.length > 0 &&
+    !availableSubjectNames.includes(APP_STATE.currentSubject)
+) {
+    APP_STATE.currentSubject = availableSubjectNames[0];
+}
+if (
+    availableSubjectNames.length > 0 &&
+    !availableSubjectNames.includes(APP_STATE.studentSubject)
+) {
+    APP_STATE.studentSubject = availableSubjectNames[0];
+}
         const { data: classes, error: classErr } = await supabase
             .from('app3_classes')
             .select('*')
@@ -1428,6 +1485,23 @@ window.filterLearningCommentsByStudent = function(studentUuid) {
     });
 };
 function openAddLearningComment() {
+    const learningCommentSubjects = [
+    ...new Set([
+        ...(APP_STATE.subjectCatalog?.length
+            ? APP_STATE.subjectCatalog.map(subject => subject.name)
+            : SUBJECTS),
+        'Tiếng Việt',
+        'Toán',
+        'Tin học',
+        'Công nghệ',
+        'Đạo đức',
+        'Tự nhiên và Xã hội',
+        'Khoa học',
+        'Lịch sử và Địa lí',
+        'Ngoại ngữ',
+        'Khác'
+    ])
+];
     const studentOptions = APP_STATE.students
         .map(s => `
             <option value="${s.db_uuid}">
@@ -1485,18 +1559,11 @@ function openAddLearningComment() {
             <div class="form-group">
                 <label>Môn học</label>
                 <select id="lcSubjectSelect">
-                    <option value="">-- Chọn môn --</option>
-                    <option value="Tiếng Việt">Tiếng Việt</option>
-                    <option value="Toán">Toán</option>
-                    <option value="Tin học">Tin học</option>
-                    <option value="Công nghệ">Công nghệ</option>
-                    <option value="Đạo đức">Đạo đức</option>
-                    <option value="Tự nhiên và Xã hội">Tự nhiên và Xã hội</option>
-                    <option value="Khoa học">Khoa học</option>
-                    <option value="Lịch sử và Địa lí">Lịch sử và Địa lí</option>
-                    <option value="Ngoại ngữ">Ngoại ngữ</option>
-                    <option value="Khác">Khác</option>
-                </select>
+    <option value="">-- Chọn môn --</option>
+    ${learningCommentSubjects.map(subject => `
+        <option value="${subject}">${subject}</option>
+    `).join('')}
+</select>
             </div>
 
             <div class="form-group">
@@ -1769,7 +1836,23 @@ window.editLearningComment = function(commentId) {
             ].join(':');
         }
     }
-
+const learningCommentSubjects = [
+    ...new Set([
+        ...(APP_STATE.subjectCatalog?.length
+            ? APP_STATE.subjectCatalog.map(subject => subject.name)
+            : SUBJECTS),
+        'Tiếng Việt',
+        'Toán',
+        'Tin học',
+        'Công nghệ',
+        'Đạo đức',
+        'Tự nhiên và Xã hội',
+        'Khoa học',
+        'Lịch sử và Địa lí',
+        'Ngoại ngữ',
+        'Khác'
+    ])
+];
     showModal(
         'Sửa nhận xét học tập',
         `
@@ -1809,66 +1892,20 @@ window.editLearningComment = function(commentId) {
 
             </div>
 
-            <div class="form-group">
+                        <div class="form-group">
                 <label>Môn học</label>
 
                 <select id="lcSubjectSelect">
-
                     <option value="">-- Chọn môn --</option>
 
-                    <option value="Tiếng Việt"
-                        ${comment.subject === 'Tiếng Việt' ? 'selected' : ''}>
-                        Tiếng Việt
-                    </option>
-
-                    <option value="Toán"
-                        ${comment.subject === 'Toán' ? 'selected' : ''}>
-                        Toán
-                    </option>
-
-                    <option value="Tin học"
-                        ${comment.subject === 'Tin học' ? 'selected' : ''}>
-                        Tin học
-                    </option>
-
-                    <option value="Công nghệ"
-                        ${comment.subject === 'Công nghệ' ? 'selected' : ''}>
-                        Công nghệ
-                    </option>
-
-                    <option value="Đạo đức"
-                        ${comment.subject === 'Đạo đức' ? 'selected' : ''}>
-                        Đạo đức
-                    </option>
-
-                    <option value="Tự nhiên và Xã hội"
-                        ${comment.subject === 'Tự nhiên và Xã hội' ? 'selected' : ''}>
-                        Tự nhiên và Xã hội
-                    </option>
-
-                    <option value="Khoa học"
-                        ${comment.subject === 'Khoa học' ? 'selected' : ''}>
-                        Khoa học
-                    </option>
-
-                    <option value="Lịch sử và Địa lí"
-                        ${comment.subject === 'Lịch sử và Địa lí' ? 'selected' : ''}>
-                        Lịch sử và Địa lí
-                    </option>
-
-                    <option value="Ngoại ngữ"
-                        ${comment.subject === 'Ngoại ngữ' ? 'selected' : ''}>
-                        Ngoại ngữ
-                    </option>
-
-                    <option value="Khác"
-                        ${comment.subject === 'Khác' ? 'selected' : ''}>
-                        Khác
-                    </option>
-
+                    ${learningCommentSubjects.map(subject => `
+                        <option value="${subject}"
+                            ${comment.subject === subject ? 'selected' : ''}>
+                            ${subject}
+                        </option>
+                    `).join('')}
                 </select>
             </div>
-
             <div class="form-group">
                 <label>Diễn biến học tập *</label>
 
@@ -2256,10 +2293,19 @@ const STUDENT_PAGE_SIZE = 10;
 let studentSort = { field: 'fullName', order: 'asc' };
 
 function renderStudents() {
-    const studentSubject = APP_STATE.studentSubject || 'Tin học';
-    const studentSubjectOptions = SUBJECTS
-        .map(subject => `<option value="${subject}" ${subject === studentSubject ? 'selected' : ''}>${subject}</option>`)
-        .join('');
+    const studentSubject =
+    APP_STATE.studentSubject ||
+    APP_STATE.subjectCatalog?.[0]?.name ||
+    SUBJECTS[0];
+
+const studentSubjectNames =
+    APP_STATE.subjectCatalog?.length
+        ? APP_STATE.subjectCatalog.map(subject => subject.name)
+        : SUBJECTS;
+
+const studentSubjectOptions = studentSubjectNames
+    .map(subject => `<option value="${subject}" ${subject === studentSubject ? 'selected' : ''}>${subject}</option>`)
+    .join('');
     return `
         <div class="card">
             <div class="flex-between mb-2">
@@ -2310,7 +2356,7 @@ function renderStudents() {
             <div class="search-bar">
                 <input type="text" id="studentSearch" placeholder="Tìm theo tên, mã HS..." oninput="filterStudents()">
                 <select id="filterClass" onchange="filterStudents()"><option value="">Tất cả lớp</option>${APP_STATE.classes.map(c => `<option value="${c.name}">${c.name}</option>`).join('')}</select>
-                <select id="filterGrade" onchange="filterStudents()"><option value="">Tất cả khối</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select>
+                <select id="filterGrade" onchange="filterStudents()"><option value="">Tất cả khối</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select>
                 <select id="filterGender" onchange="filterStudents()"><option value="">Giới tính</option><option value="Nam">Nam</option><option value="Nữ">Nữ</option></select>
                 <button class="btn btn-secondary btn-sm" onclick="resetFilters()"><i class="fas fa-undo"></i> Reset</button>
             </div>
@@ -2338,11 +2384,15 @@ function renderStudents() {
     `;
 }
 function switchStudentSubject(subject) {
-    if (!SUBJECTS.includes(subject)) return;
+    const validSubjects =
+        APP_STATE.subjectCatalog?.length
+            ? APP_STATE.subjectCatalog.map(item => item.name)
+            : SUBJECTS;
+
+    if (!validSubjects.includes(subject)) return;
 
     APP_STATE.studentSubject = subject;
     studentPage = 1;
-
     initStudentTable();
 }
 function getFilteredStudents() {
@@ -2357,7 +2407,10 @@ function getFilteredStudents() {
     if (gen) list = list.filter(s => s.gender === gen);
     const field = studentSort.field;
 const order = studentSort.order;
-const subject = APP_STATE.studentSubject || 'Tin học';
+const subject =
+    APP_STATE.studentSubject ||
+    APP_STATE.subjectCatalog?.[0]?.name ||
+    SUBJECTS[0];
 
 list.sort((a, b) => {
     let va;
@@ -2386,7 +2439,10 @@ list.sort((a, b) => {
 }
 
 function initStudentTable() {
-    const subject = APP_STATE.studentSubject || 'Tin học';
+    const subject =
+    APP_STATE.studentSubject ||
+    APP_STATE.subjectCatalog?.[0]?.name ||
+    SUBJECTS[0];
 
     const list = getFilteredStudents();
     const total = list.length;
@@ -2569,8 +2625,7 @@ function getStudentFormHTML(student = null, showAvatar = true) {
                 <select id="sfClass">${classes.map(c => `<option value="${c}" ${s.class === c ? 'selected' : ''}>${c}</option>`).join('')}</select>
             </div>
             <div class="form-group"><label>Khối</label>
-                <select id="sfGrade"><option value="3" ${s.grade === '3' ? 'selected' : ''}>3</option><option value="4" ${s.grade === '4' ? 'selected' : ''}>4</option><option value="5" ${s.grade === '5' ? 'selected' : ''}>5</option></select>
-            </div>
+                <select id="sfGrade"><option value="1" ${s.grade === '1' ? 'selected' : ''}>1</option><option value="2" ${s.grade === '2' ? 'selected' : ''}>2</option><option value="3" ${s.grade === '3' ? 'selected' : ''}>3</option><option value="4" ${s.grade === '4' ? 'selected' : ''}>4</option><option value="5" ${s.grade === '5' ? 'selected' : ''}>5</option></select>
             <div class="form-group"><label>Địa chỉ</label><input type="text" id="sfAddress" value="${s.address || ''}"></div>
             <div class="form-group"><label>Số điện thoại</label><input type="text" id="sfPhone" value="${s.phone || ''}"></div>
             <div class="form-group"><label>Email</label><input type="email" id="sfEmail" value="${s.email || ''}"></div>
@@ -2656,8 +2711,6 @@ async function addStudentToSupabase(data, avatarFile) {
         father_name: data.fatherName,
         mother_name: data.motherName,
         parent_phone: data.parentPhone,
-        competence: data.competence,
-        quality: data.quality,
         enrollment_date: data.enrollmentDate || null,
         status: data.status || 'Đang học',
         note: data.note,
@@ -2672,7 +2725,28 @@ async function addStudentToSupabase(data, avatarFile) {
 
     if (error) throw error;
 
-    const newStudent = {
+// Lưu Năng lực + Phẩm chất theo môn đang chọn vào app3_scores
+const subject =
+    APP_STATE.studentSubject ||
+    APP_STATE.subjectCatalog?.[0]?.name ||
+    SUBJECTS[0] ||
+    'Tin học';
+
+const { error: scoreError } = await supabase
+    .from('app3_scores')
+    .upsert({
+        student_id: inserted.id,
+        subject: subject,
+        subject_id: getSubjectId(subject),
+        competence: data.competence || '',
+        quality: data.quality || ''
+    }, {
+        onConflict: 'student_id,subject'
+    });
+
+if (scoreError) throw scoreError;
+
+const newStudent = {
         ...inserted,
         db_uuid: inserted.id,
         id: inserted.student_code,
@@ -2697,9 +2771,21 @@ async function addStudentToSupabase(data, avatarFile) {
     };
     APP_STATE.students.push(newStudent);
     APP_STATE.scores[newStudent.id] = {};
-    SUBJECTS.forEach(sub => {
-        APP_STATE.scores[newStudent.id][sub] = { giuaKy1: '', cuoiKy1: null, giuaKy2: '', cuoiKy2: null };
-    });
+    const studentSubjects =
+    APP_STATE.subjectCatalog?.length
+        ? APP_STATE.subjectCatalog.map(subject => subject.name)
+        : SUBJECTS;
+
+studentSubjects.forEach(sub => {
+    APP_STATE.scores[newStudent.id][sub] = {
+        giuaKy1: '',
+        cuoiKy1: null,
+        giuaKy2: '',
+        cuoiKy2: null,
+        competence: '',
+        quality: ''
+    };
+});
     updateClassCounts();
     return newStudent;
 }
@@ -2764,8 +2850,6 @@ async function updateStudentInSupabase(id, data, avatarFile) {
         father_name: data.fatherName,
         mother_name: data.motherName,
         parent_phone: data.parentPhone,
-        competence: data.competence,
-        quality: data.quality,
         enrollment_date: data.enrollmentDate || null,
         status: data.status || 'Đang học',
         note: data.note,
@@ -2778,7 +2862,44 @@ async function updateStudentInSupabase(id, data, avatarFile) {
         .eq('student_code', id);
 
     if (error) throw error;
+// Lưu Năng lực + Phẩm chất theo môn đang chọn
+const subject =
+    APP_STATE.studentSubject ||
+    APP_STATE.subjectCatalog?.[0]?.name ||
+    SUBJECTS[0];
 
+const { error: scoreError } = await supabase
+    .from('app3_scores')
+    .upsert({
+        student_id: existing.db_uuid,
+        subject: subject,
+        subject_id: getSubjectId(subject),
+        competence: data.competence,
+        quality: data.quality
+    }, {
+        onConflict: 'student_id,subject'
+    });
+
+if (scoreError) throw scoreError;
+
+// Đồng bộ dữ liệu trong bộ nhớ
+if (!APP_STATE.scores[id]) {
+    APP_STATE.scores[id] = {};
+}
+
+if (!APP_STATE.scores[id][subject]) {
+    APP_STATE.scores[id][subject] = {
+        giuaKy1: '',
+        cuoiKy1: null,
+        giuaKy2: '',
+        cuoiKy2: null,
+        competence: '',
+        quality: ''
+    };
+}
+
+APP_STATE.scores[id][subject].competence = data.competence;
+APP_STATE.scores[id][subject].quality = data.quality;
     Object.assign(existing, {
         fullName: data.fullName,
         dob: data.dob,
@@ -2789,8 +2910,6 @@ async function updateStudentInSupabase(id, data, avatarFile) {
         fatherName: data.fatherName,
         motherName: data.motherName,
         parentPhone: data.parentPhone,
-        competence: data.competence,
-        quality: data.quality,
         enrollmentDate: data.enrollmentDate,
         status: data.status,
         note: data.note,
@@ -2806,7 +2925,21 @@ async function updateStudentInSupabase(id, data, avatarFile) {
 function editStudent(id) {
     const student = APP_STATE.students.find(s => s.id === id);
     if (!student) return;
-    showModal('Sửa học sinh', getStudentFormHTML(student, true), 'Cập nhật', 'Hủy').then(async confirmed => {
+
+    const subject =
+    APP_STATE.studentSubject ||
+    APP_STATE.subjectCatalog?.[0]?.name ||
+    SUBJECTS[0];
+
+    const subjectScore = APP_STATE.scores[id]?.[subject] || {};
+
+    const studentForForm = {
+        ...student,
+        competence: subjectScore.competence || '',
+        quality: subjectScore.quality || ''
+    };
+
+    showModal('Sửa học sinh', getStudentFormHTML(studentForForm, true), 'Cập nhật', 'Hủy').then(async confirmed => {
         if (confirmed) {
             const data = getStudentFormData();
             if (!data.fullName || !data.dob) {
@@ -2839,7 +2972,10 @@ function viewStudent(id) {
     const studentScores = APP_STATE.scores[s.id] || {};
 
     // Dùng chung danh sách môn hiện tại của hệ thống
-    const subjects = [...SUBJECTS];
+    const subjects =
+    APP_STATE.subjectCatalog?.length
+        ? APP_STATE.subjectCatalog.map(subject => subject.name)
+        : [...SUBJECTS];
 
     // Mặc định mở môn đầu tiên
     const defaultSubject = subjects[0] || '';
@@ -3078,7 +3214,8 @@ function exportExcel() {
     const subject =
     document.getElementById('studentSubject')?.value ||
     APP_STATE.studentSubject ||
-    'Tin học';
+    APP_STATE.subjectCatalog?.[0]?.name ||
+    SUBJECTS[0];
 
 APP_STATE.studentSubject = subject;
 
@@ -3412,9 +3549,21 @@ function importExcel(event) {
                     };
                     APP_STATE.students.push(newStudent);
                     APP_STATE.scores[newStudent.id] = {};
-                    SUBJECTS.forEach(sub => {
-                        APP_STATE.scores[newStudent.id][sub] = { giuaKy1: '', cuoiKy1: null, giuaKy2: '', cuoiKy2: null };
-                    });
+                    const importedStudentSubjects =
+    APP_STATE.subjectCatalog?.length
+        ? APP_STATE.subjectCatalog.map(subject => subject.name)
+        : SUBJECTS;
+
+importedStudentSubjects.forEach(sub => {
+    APP_STATE.scores[newStudent.id][sub] = {
+        giuaKy1: '',
+        cuoiKy1: null,
+        giuaKy2: '',
+        cuoiKy2: null,
+        competence: '',
+        quality: ''
+    };
+});
                 });
                 updateClassCounts();
                 showToast(`Import thành công ${imported} học sinh. ${errors > 0 ? 'Có ' + errors + ' dòng bị lỗi (thiếu thông tin).' : ''}`);
@@ -3488,7 +3637,7 @@ function openAddClass() {
     showModal('Thêm lớp', `
         <div class="form-grid">
             <div class="form-group"><label>Tên lớp *</label><input type="text" id="cfName" placeholder="5B1"></div>
-            <div class="form-group"><label>Khối *</label><select id="cfGrade"><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+            <div class="form-group"><label>Khối *</label><select id="cfGrade"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
             <div class="form-group"><label>Giáo viên chủ nhiệm</label><input type="text" id="cfTeacher" placeholder="Võ Thanh Đậm" value="Võ Thanh Đậm"></div>
         </div>
     `, 'Thêm', 'Hủy').then(async confirmed => {
@@ -3530,7 +3679,7 @@ function editClass(id) {
     showModal('Sửa lớp', `
         <div class="form-grid">
             <div class="form-group"><label>Tên lớp *</label><input type="text" id="cfName" value="${c.name}"></div>
-            <div class="form-group"><label>Khối *</label><select id="cfGrade"><option value="3" ${c.grade === '3' ? 'selected' : ''}>3</option><option value="4" ${c.grade === '4' ? 'selected' : ''}>4</option><option value="5" ${c.grade === '5' ? 'selected' : ''}>5</option></select></div>
+            <div class="form-group"><label>Khối *</label><select id="cfGrade"><option value="1" ${c.grade === '1' ? 'selected' : ''}>1</option><option value="2" ${c.grade === '2' ? 'selected' : ''}>2</option><option value="3" ${c.grade === '3' ? 'selected' : ''}>3</option><option value="4" ${c.grade === '4' ? 'selected' : ''}>4</option><option value="5" ${c.grade === '5' ? 'selected' : ''}>5</option></select></div>
             <div class="form-group"><label>Giáo viên chủ nhiệm</label><input type="text" id="cfTeacher" value="${c.teacher || 'Võ Thanh Đậm'}"></div>
         </div>
     `, 'Cập nhật', 'Hủy').then(async confirmed => {
@@ -3593,7 +3742,14 @@ async function deleteClass(id) {
 // ============================================================
 function renderScores() {
     const classOptions = APP_STATE.classes.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
-    const subjectOptions = SUBJECTS.map(sub => `<option value="${sub}" ${sub === APP_STATE.currentSubject ? 'selected' : ''}>${sub}</option>`).join('');
+    const scoreSubjectNames =
+    APP_STATE.subjectCatalog?.length
+        ? APP_STATE.subjectCatalog.map(subject => subject.name)
+        : SUBJECTS;
+
+const subjectOptions = scoreSubjectNames
+    .map(sub => `<option value="${sub}" ${sub === APP_STATE.currentSubject ? 'selected' : ''}>${sub}</option>`)
+    .join('');
 
     return `
         <div class="card">
@@ -3636,6 +3792,13 @@ function renderScores() {
 }
 
 function switchSubject(subject) {
+    const validSubjects =
+        APP_STATE.subjectCatalog?.length
+            ? APP_STATE.subjectCatalog.map(item => item.name)
+            : SUBJECTS;
+
+    if (!validSubjects.includes(subject)) return;
+
     APP_STATE.currentSubject = subject;
     renderPage('scores');
 }
@@ -3654,7 +3817,14 @@ function initScoreTable() {
 
     tbody.innerHTML = list.map((s, idx) => {
         const studentScores = APP_STATE.scores[s.id] || {};
-        const sc = studentScores[subject] || { giuaKy1: '', cuoiKy1: null, giuaKy2: '', cuoiKy2: null };
+        const sc = studentScores[subject] || {
+    giuaKy1: '',
+    cuoiKy1: null,
+    giuaKy2: '',
+    cuoiKy2: null,
+    competence: '',
+    quality: ''
+};
         const comp = sc.competence || '';
         const qual = sc.quality || '';
         const gk1Opts = gkOptions.map(opt => `<option value="${opt}" ${opt === sc.giuaKy1 ? 'selected' : ''}>${opt || ''}</option>`).join('');
@@ -3705,8 +3875,15 @@ async function updateScore(studentId, field, value) {
         APP_STATE.scores[studentId] = {};
     }
     if (!APP_STATE.scores[studentId][subject]) {
-        APP_STATE.scores[studentId][subject] = { giuaKy1: '', cuoiKy1: null, giuaKy2: '', cuoiKy2: null };
-    }
+    APP_STATE.scores[studentId][subject] = {
+        giuaKy1: '',
+        cuoiKy1: null,
+        giuaKy2: '',
+        cuoiKy2: null,
+        competence: '',
+        quality: ''
+    };
+}
     const sc = APP_STATE.scores[studentId][subject];
     let updateData = {};
 
@@ -3733,6 +3910,7 @@ async function updateScore(studentId, field, value) {
             .upsert({
                 student_id: student.db_uuid,
                 subject: subject,
+                subject_id: getSubjectId(subject),
                 giua_ky_1: updatedSc.giuaKy1 || '',
                 cuoi_ky_1: updatedSc.cuoiKy1 !== null ? updatedSc.cuoiKy1 : null,
                 giua_ky_2: updatedSc.giuaKy2 || '',
@@ -3766,6 +3944,7 @@ async function updateScore(studentId, field, value) {
             .upsert({
                 student_id: student.db_uuid,
                 subject: subject,
+                subject_id: getSubjectId(subject),
                 ...updateData
             }, { onConflict: 'student_id,subject' });
         if (error) {
@@ -4441,14 +4620,19 @@ function renderStatistics() {
 }
 
 function initStatCharts() {
-    const grades = ['3', '4', '5'];
+    const grades = ['1', '2', '3', '4', '5'];
     const counts = grades.map(g => APP_STATE.students.filter(s => s.grade === g).length);
     if (chartInstances.statGrade) chartInstances.statGrade.destroy();
     chartInstances.statGrade = new Chart(document.getElementById('statGradeChart'), {
         type: 'bar',
         data: {
-            labels: ['Khối 3', 'Khối 4', 'Khối 5'],
-            datasets: [{ label: 'Số học sinh', data: counts, backgroundColor: ['#60a5fa', '#34d399', '#fbbf24'], borderRadius: 6 }]
+            labels: ['Khối 1', 'Khối 2', 'Khối 3', 'Khối 4', 'Khối 5'],
+            datasets: [{
+    label: 'Số học sinh',
+    data: counts,
+    backgroundColor: ['#60a5fa', '#a78bfa', '#34d399', '#fbbf24', '#fb7185'],
+    borderRadius: 6
+}]
         },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
     });
@@ -4567,16 +4751,7 @@ function renderSettings() {
                 <div class="form-group"><label>Xác nhận</label><input type="password" id="confirmPassword" placeholder="••••••••"></div>
             </div>
             <button class="btn btn-warning" onclick="changePassword()"><i class="fas fa-key"></i> Đổi mật khẩu</button>
-            <hr class="my-3">
-            <h4>Quản lý dữ liệu</h4>
-            <div class="flex gap-2">
-                
-                <button class="btn btn-info" onclick="migrateLocal()"><i class="fas fa-database"></i> Migrate từ localStorage</button>
             </div>
-            <p class="text-muted mt-2" style="font-size:0.8rem;">
-                <i class="fas fa-info-circle"></i> Backup lưu toàn bộ dữ liệu (học sinh, điểm, file...). Dùng để chuyển dữ liệu giữa các trình duyệt hoặc máy tính.
-            </p>
-        </div>
     `;
 }
 
@@ -4634,7 +4809,10 @@ function printStudents() {
 function printStudent(id) {
     const s = APP_STATE.students.find(st => st.id === id);
     if (!s) return;
-    const subject = APP_STATE.studentSubject || 'Tin học';
+    const subject =
+    APP_STATE.studentSubject ||
+    APP_STATE.subjectCatalog?.[0]?.name ||
+    SUBJECTS[0];
 const evaluation = APP_STATE.scores?.[s.id]?.[subject] || {};
 const competence = evaluation.competence || '';
 const quality = evaluation.quality || '';
@@ -4819,7 +4997,14 @@ function exportScoreClass() {
         return;
     }
     const data = students.map(s => {
-        const sc = APP_STATE.scores[s.id]?.[subject] || { giuaKy1: '', cuoiKy1: null, giuaKy2: '', cuoiKy2: null };
+        const sc = APP_STATE.scores[s.id]?.[subject] || {
+    giuaKy1: '',
+    cuoiKy1: null,
+    giuaKy2: '',
+    cuoiKy2: null,
+    competence: '',
+    quality: ''
+};
         return {
             'Mã HS': s.id,
             'Họ tên': s.fullName,
@@ -4878,33 +5063,6 @@ function exportDisciplines() {
 }
 
 
-
-// ============================================================
-// 19. MIGRATION LOCALSTORAGE → SUPABASE
-// ============================================================
-async function migrateLocal() {
-    const confirmed = await showModal('Migration dữ liệu từ localStorage',
-        '<p>Bạn sẽ chuyển toàn bộ dữ liệu từ localStorage lên Supabase.</p>' +
-        '<p style="color:#dc2626;">Dữ liệu trên Supabase sẽ được cập nhật, không mất dữ liệu cũ nếu trùng mã.</p>',
-        'Tiến hành', 'Hủy');
-    if (!confirmed) return;
-
-    showLoading();
-    try {
-        const result = await migrateLocalStorageToSupabase();
-        if (result.success) {
-            showToast(`Migration thành công! Số bản ghi đã chuyển: ${JSON.stringify(result.result)}`, 'success');
-            await loadAllData();
-            renderPage(APP_STATE.currentPage);
-        } else {
-            showToast('Migration thất bại: ' + result.error, 'error');
-        }
-    } catch (err) {
-        showToast('Lỗi migration: ' + err.message, 'error');
-    } finally {
-        hideLoading();
-    }
-}
 
 // ============================================================
 // 20. NAVIGATION & LOGIN (Supabase Auth)
@@ -5090,7 +5248,7 @@ document.addEventListener('DOMContentLoaded', function() {
     window.previewAvatar = previewAvatar;
     window.clearAvatar = clearAvatar;
     window.downloadAvatar = downloadAvatar;
-        window.migrateLocal = migrateLocal;
+        
     
     // ============================================================
     // FIX LOGIC CẢM ỨNG NÚT 3 GẠCH
