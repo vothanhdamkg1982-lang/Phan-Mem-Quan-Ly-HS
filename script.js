@@ -1056,8 +1056,6 @@ if (
             fatherName: s.father_name,
             motherName: s.mother_name,
             parentPhone: s.parent_phone,
-            competence: s.competence,
-            quality: s.quality,
             enrollmentDate: s.enrollment_date,
             status: s.status,
             note: s.note,
@@ -3498,73 +3496,114 @@ function importExcel(event) {
             }
 
             if (newStudents.length > 0) {
-                const { data: inserted, error: insertErr } = await supabase
-                    .from('app3_students')
-                    .insert(newStudents.map(s => ({
-                        student_code: s.student_code,
-                        full_name: s.full_name,
-                        dob: s.dob,
-                        gender: s.gender,
-                        class_id: s.class_id,
-                        grade: s.grade,
-                        address: s.address,
-                        phone: s.phone,
-                        email: s.email,
-                        father_name: s.father_name,
-                        mother_name: s.mother_name,
-                        parent_phone: s.parent_phone,
-                        status: s.status,
-                        note: s.note,
-                        competence: s.competence,
-                        quality: s.quality,
-                        enrollment_date: s.enrollment_date,
-                        avatar_url: s.avatar_url
-                    })))
-                    .select();
-                if (insertErr) throw insertErr;
+    const { data: inserted, error: insertErr } = await supabase
+        .from('app3_students')
+        .insert(newStudents.map(s => ({
+            student_code: s.student_code,
+            full_name: s.full_name,
+            dob: s.dob,
+            gender: s.gender,
+            class_id: s.class_id,
+            grade: s.grade,
+            address: s.address,
+            phone: s.phone,
+            email: s.email,
+            father_name: s.father_name,
+            mother_name: s.mother_name,
+            parent_phone: s.parent_phone,
+            status: s.status,
+            note: s.note,
+            enrollment_date: s.enrollment_date,
+            avatar_url: s.avatar_url
+        })))
+        .select();
 
-                inserted.forEach(st => {
-                    const newStudent = {
-                        ...st,
-                        db_uuid: st.id,
-                        id: st.student_code,
-                        fullName: st.full_name,
-                        dob: st.dob,
-                        gender: st.gender,
-                        address: st.address,
-                        phone: st.phone,
-                        email: st.email,
-                        fatherName: st.father_name,
-                        motherName: st.mother_name,
-                        parentPhone: st.parent_phone,
-                        competence: st.competence,
-                        quality: st.quality,
-                        enrollmentDate: st.enrollment_date,
-                        status: st.status,
-                        note: st.note,
-                        avatar: st.avatar_url || DEFAULT_AVATAR,
-                        grade: st.grade,
-                        class: APP_STATE.classes.find(c => c.id === st.class_id)?.name || '',
-                        class_id: st.class_id
-                    };
-                    APP_STATE.students.push(newStudent);
-                    APP_STATE.scores[newStudent.id] = {};
-                    const importedStudentSubjects =
-    APP_STATE.subjectCatalog?.length
-        ? APP_STATE.subjectCatalog.map(subject => subject.name)
-        : SUBJECTS;
+    if (insertErr) throw insertErr;
 
-importedStudentSubjects.forEach(sub => {
-    APP_STATE.scores[newStudent.id][sub] = {
-        giuaKy1: '',
-        cuoiKy1: null,
-        giuaKy2: '',
-        cuoiKy2: null,
-        competence: '',
-        quality: ''
-    };
-});
-                });
+    const importSubject =
+        APP_STATE.studentSubject ||
+        APP_STATE.subjectCatalog?.[0]?.name ||
+        SUBJECTS[0] ||
+        'Tin học';
+
+    for (let i = 0; i < inserted.length; i++) {
+        const st = inserted[i];
+        const sourceStudent = newStudents[i];
+
+        const newStudent = {
+            ...st,
+            db_uuid: st.id,
+            id: st.student_code,
+            fullName: st.full_name,
+            dob: st.dob,
+            gender: st.gender,
+            address: st.address,
+            phone: st.phone,
+            email: st.email,
+            fatherName: st.father_name,
+            motherName: st.mother_name,
+            parentPhone: st.parent_phone,
+            enrollmentDate: st.enrollment_date,
+            status: st.status,
+            note: st.note,
+            avatar: st.avatar_url || DEFAULT_AVATAR,
+            grade: st.grade,
+            class: APP_STATE.classes.find(c => c.id === st.class_id)?.name || '',
+            class_id: st.class_id
+        };
+
+        APP_STATE.students.push(newStudent);
+        APP_STATE.scores[newStudent.id] = {};
+
+        const importedStudentSubjects =
+            APP_STATE.subjectCatalog?.length
+                ? APP_STATE.subjectCatalog.map(subject => subject.name)
+                : SUBJECTS;
+
+        importedStudentSubjects.forEach(sub => {
+            APP_STATE.scores[newStudent.id][sub] = {
+                giuaKy1: '',
+                cuoiKy1: null,
+                giuaKy2: '',
+                cuoiKy2: null,
+                competence: '',
+                quality: ''
+            };
+        });
+
+        // Lưu Năng lực + Phẩm chất của Excel vào môn đang chọn
+        const { error: scoreError } = await supabase
+            .from('app3_scores')
+            .upsert({
+                student_id: st.id,
+                subject: importSubject,
+                subject_id: getSubjectId(importSubject),
+                competence: sourceStudent?.competence || '',
+                quality: sourceStudent?.quality || ''
+            }, {
+                onConflict: 'student_id,subject'
+            });
+
+        if (scoreError) throw scoreError;
+
+        // Đồng bộ dữ liệu trong bộ nhớ
+        if (!APP_STATE.scores[newStudent.id][importSubject]) {
+            APP_STATE.scores[newStudent.id][importSubject] = {
+                giuaKy1: '',
+                cuoiKy1: null,
+                giuaKy2: '',
+                cuoiKy2: null,
+                competence: '',
+                quality: ''
+            };
+        }
+
+        APP_STATE.scores[newStudent.id][importSubject].competence =
+            sourceStudent?.competence || '';
+
+        APP_STATE.scores[newStudent.id][importSubject].quality =
+            sourceStudent?.quality || '';
+    }
                 updateClassCounts();
                 showToast(`Import thành công ${imported} học sinh. ${errors > 0 ? 'Có ' + errors + ' dòng bị lỗi (thiếu thông tin).' : ''}`);
             } else {
@@ -4601,9 +4640,63 @@ async function deleteFile(id) {
 // 15. THỐNG KÊ (dùng dữ liệu từ APP_STATE)
 // ============================================================
 function renderStatistics() {
+    const statSubject =
+    APP_STATE.statSubject ||
+    APP_STATE.studentSubject ||
+    APP_STATE.currentSubject ||
+    APP_STATE.subjectCatalog?.[0]?.name ||
+    SUBJECTS[0] ||
+    'Tin học';
+
+APP_STATE.statSubject = statSubject;
+
+let competenceEvaluated = 0;
+let qualityEvaluated = 0;
+
+APP_STATE.students.forEach(student => {
+    const subjectScore = APP_STATE.scores[student.id]?.[statSubject];
+
+    if (subjectScore?.competence?.trim()) {
+        competenceEvaluated++;
+    }
+
+    if (subjectScore?.quality?.trim()) {
+        qualityEvaluated++;
+    }
+});
+
+const competenceNotEvaluated =
+    APP_STATE.students.length - competenceEvaluated;
+
+const qualityNotEvaluated =
+    APP_STATE.students.length - qualityEvaluated;
     return `
         <div class="card">
             <h3 class="card-title"><i class="fas fa-chart-bar"></i> Thống kê chi tiết</h3>
+            <div class="form-group" style="max-width: 300px; margin-bottom: 16px;">
+    <label>Môn học</label>
+    <select id="statSubjectSelect" onchange="switchStatSubject(this.value)">
+        ${
+            (
+                APP_STATE.subjectCatalog?.length
+                    ? APP_STATE.subjectCatalog.map(subject => subject.name)
+                    : SUBJECTS
+            )
+            .map(subject => `
+                <option value="${subject}" ${
+                    subject === (
+                        APP_STATE.statSubject ||
+                        APP_STATE.studentSubject ||
+                        APP_STATE.currentSubject ||
+                        SUBJECTS[0]
+                    ) ? 'selected' : ''
+                }>
+                    ${subject}
+                </option>
+            `).join('')
+        }
+    </select>
+</div>
             <div class="chart-grid">
                 <div class="chart-box"><canvas id="statGradeChart"></canvas></div>
                 <div class="chart-box"><canvas id="statGenderChart"></canvas></div>
@@ -4615,10 +4708,45 @@ function renderStatistics() {
                 <div class="stat-card"><div class="stat-label">Khen thưởng</div><div class="stat-value">${APP_STATE.rewards.length}</div></div>
                 <div class="stat-card"><div class="stat-label">Kỷ luật</div><div class="stat-value">${APP_STATE.disciplines.length}</div></div>
             </div>
+            <div class="stats-grid mt-2">
+    <div class="stat-card">
+        <div class="stat-label">Đã đánh giá NL - ${statSubject}</div>
+        <div class="stat-value">${competenceEvaluated}</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">Chưa đánh giá NL - ${statSubject}</div>
+        <div class="stat-value">${competenceNotEvaluated}</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">Đã đánh giá PC - ${statSubject}</div>
+        <div class="stat-value">${qualityEvaluated}</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">Chưa đánh giá PC - ${statSubject}</div>
+        <div class="stat-value">${qualityNotEvaluated}</div>
+    </div>
+</div>
         </div>
     `;
 }
+function switchStatSubject(subject) {
+    const availableSubjects =
+        APP_STATE.subjectCatalog?.length
+            ? APP_STATE.subjectCatalog.map(item => item.name)
+            : SUBJECTS;
 
+    if (!availableSubjects.includes(subject)) return;
+
+    APP_STATE.statSubject = subject;
+
+    console.log('MÔN THỐNG KÊ:', subject);
+
+    // Cập nhật lại biểu đồ theo môn vừa chọn
+    renderPage('statistics');
+}
 function initStatCharts() {
     const grades = ['1', '2', '3', '4', '5'];
     const counts = grades.map(g => APP_STATE.students.filter(s => s.grade === g).length);
@@ -4649,16 +4777,37 @@ function initStatCharts() {
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
     });
 
-    const compMap = {};
-    APP_STATE.students.forEach(s => {
-        const val = s.competence || 'Chưa xếp';
+    const statSubject =
+    APP_STATE.statSubject ||
+    APP_STATE.studentSubject ||
+    APP_STATE.currentSubject ||
+    APP_STATE.subjectCatalog?.[0]?.name ||
+    SUBJECTS[0] ||
+    'Tin học';
+
+APP_STATE.statSubject = statSubject;
+
+const compMap = {};
+
+APP_STATE.students.forEach(s => {
+    const val =
+        APP_STATE.scores[s.id]?.[statSubject]?.competence ||
+        'Chưa xếp';
+
         compMap[val] = (compMap[val] || 0) + 1;
-    });
-    const compLabels = Object.keys(compMap);
-    const compValues = Object.values(compMap);
-    const colors = ['#16a34a', '#2563eb', '#f59e0b', '#dc2626', '#94a3b8'];
-    if (chartInstances.statCompetence) chartInstances.statCompetence.destroy();
-    chartInstances.statCompetence = new Chart(document.getElementById('statCompetenceChart'), {
+});
+
+const compLabels = Object.keys(compMap);
+const compValues = Object.values(compMap);
+const colors = ['#16a34a', '#2563eb', '#f59e0b', '#dc2626', '#94a3b8'];
+
+if (chartInstances.statCompetence) {
+    chartInstances.statCompetence.destroy();
+}
+
+chartInstances.statCompetence = new Chart(
+    document.getElementById('statCompetenceChart'),
+    {
         type: 'pie',
         data: {
             labels: compLabels,
@@ -4671,9 +4820,22 @@ function initStatCharts() {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { legend: { position: 'bottom' } }
+            plugins: {
+                title: {
+                    display: true,
+                    text: `Năng lực - ${statSubject}`,
+                    font: {
+                        size: 16,
+                        weight: 'bold'
+                    }
+                },
+                legend: {
+                    position: 'bottom'
+                }
+            }
         }
-    });
+    }
+);
 }
 
 // ============================================================
@@ -5248,7 +5410,7 @@ document.addEventListener('DOMContentLoaded', function() {
     window.previewAvatar = previewAvatar;
     window.clearAvatar = clearAvatar;
     window.downloadAvatar = downloadAvatar;
-        
+    window.switchStatSubject = switchStatSubject;
     
     // ============================================================
     // FIX LOGIC CẢM ỨNG NÚT 3 GẠCH
