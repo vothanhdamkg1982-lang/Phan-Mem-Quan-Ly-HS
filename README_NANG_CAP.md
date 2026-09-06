@@ -76,3 +76,17 @@ Không cần chạy SQL mới cho bước này.
 - Mở rộng banner chính chiếm xấp xỉ 2/3 chiều ngang hero trên desktop; phần nội dung trái xấp xỉ 1/3.
 - Thay banner hero bằng phiên bản khổ rộng mới.
 - Không thay đổi dữ liệu, Supabase, VNEDU, phân quyền hay nghiệp vụ quản lý.
+
+## Bước 149.1 - Website công khai
+- Mở rộng menu công khai: Hình ảnh, Video, Liên kết.
+- Thêm giao diện thư viện ảnh và video công khai (chưa cần đăng nhập).
+- Thêm liên kết ngoài VNEDU và Bộ GD&ĐT, mở tab mới an toàn.
+- Sửa tên trường cũ còn sót ở khối liên hệ.
+- Không thay đổi dữ liệu, Supabase RLS hay các chức năng quản lý học sinh.
+
+## Bước 149.2 - Bố cục chữ U ngược (∩)
+- Thanh đầu trang + menu dọc trái + tiện ích dọc phải tạo khung chữ U ngược quanh banner.
+- Tỷ lệ desktop xấp xỉ 18% - 64% - 18%.
+- Hai cột bên chỉ tồn tại trong khu vực banner; các phần nội dung bên dưới vẫn toàn chiều rộng.
+- Mobile tự chuyển thành banner trước, menu/tiện ích phía dưới để không ép hẹp nội dung.
+- Không thay đổi Supabase, dữ liệu học sinh, điểm, VNEDU, RLS hoặc phân quyền.

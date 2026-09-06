@@ -28,37 +28,43 @@
                         <span>Kỷ cương · Tình thương · Trách nhiệm</span>
                     </div>
                 </a>
-                <button class="site-menu-toggle" id="siteMenuToggle" aria-label="Mở menu"><i class="fas fa-bars"></i></button>
-                <nav class="site-nav" id="siteNav">
-                    <a href="#trang-chu" class="active"><i class="fas fa-house"></i> Trang chủ</a>
-                    <a href="#gioi-thieu"><i class="fas fa-users"></i> Giới thiệu</a>
-                    <a href="#tin-tuc"><i class="fas fa-newspaper"></i> Tin tức</a>
-                    <a href="#tai-lieu"><i class="fas fa-book-open"></i> Tài liệu</a>
-                    <a href="#lien-he"><i class="fas fa-phone"></i> Liên hệ</a>
-                </nav>
+                <div class="site-top-motto"><i class="fas fa-school-flag"></i><span>Cổng thông tin điện tử nhà trường</span></div>
                 <button class="site-login-btn" data-open-login><i class="fas fa-lock"></i> Đăng nhập</button>
             </div>
         </header>
 
         <main>
-            <section id="trang-chu" class="site-hero">
+            <section id="trang-chu" class="site-hero public-u-hero">
                 <div class="hero-pattern"></div>
-                <div class="site-container hero-grid">
-                    <div class="hero-copy hero-copy-compact">
-                        <div class="hero-meta hero-meta-compact">
-                            <span><i class="far fa-calendar-alt"></i> Năm học <b id="publicSchoolYear">2026-2027</b></span>
-                        </div>
-                        <div class="hero-actions hero-actions-compact">
-                            <button class="hero-primary" data-open-login><i class="fas fa-right-to-bracket"></i> Vào hệ thống quản lý</button>
-                            <a class="hero-secondary" href="#chuc-nang"><i class="fas fa-circle-play"></i> Xem chức năng</a>
-                        </div>
-                    </div>
-                    <div class="hero-visual hero-banner-visual" aria-hidden="true">
+                <div class="site-container public-u-shell">
+                    <aside class="public-u-side public-u-left" aria-label="Menu nội dung">
+                        <div class="u-side-title"><i class="fas fa-bars"></i><span>Danh mục</span></div>
+                        <nav class="u-side-nav">
+                            <a href="#trang-chu" class="active"><i class="fas fa-house"></i><span>Trang chủ</span></a>
+                            <a href="#gioi-thieu"><i class="fas fa-school"></i><span>Giới thiệu</span></a>
+                            <a href="#tin-tuc"><i class="fas fa-newspaper"></i><span>Tin tức - Sự kiện</span></a>
+                            <a href="#hinh-anh"><i class="fas fa-images"></i><span>Thư viện ảnh</span></a>
+                            <a href="#video"><i class="fas fa-circle-play"></i><span>Video hoạt động</span></a>
+                            <a href="#tai-lieu"><i class="fas fa-folder-open"></i><span>Tài liệu công khai</span></a>
+                        </nav>
+                    </aside>
+                    <div class="public-u-center">
                         <div class="hero-banner-frame">
-                            <img src="assets/banner-lai-son.png" alt="" class="hero-banner-image">
+                            <img src="assets/banner-lai-son.png" alt="Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn" class="hero-banner-image">
                             <span class="hero-banner-shine"></span>
                         </div>
                     </div>
+                    <aside class="public-u-side public-u-right" aria-label="Tiện ích">
+                        <div class="u-side-title"><i class="fas fa-bolt"></i><span>Tiện ích</span></div>
+                        <div class="u-school-year"><i class="far fa-calendar-alt"></i><span>Năm học</span><b id="publicSchoolYear">2026-2027</b></div>
+                        <nav class="u-side-nav">
+                            <a href="#tin-tuc"><i class="fas fa-bullhorn"></i><span>Thông báo mới</span></a>
+                            <a href="#lien-ket"><i class="fas fa-link"></i><span>Liên kết hữu ích</span></a>
+                            <a href="#lien-he"><i class="fas fa-phone"></i><span>Thông tin liên hệ</span></a>
+                        </nav>
+                        <button class="u-manage-btn" data-open-login><i class="fas fa-right-to-bracket"></i><span>Vào hệ thống quản lý</span></button>
+                    </aside>
+                </div>
                 <div class="hero-wave"></div>
             </section>
 
@@ -102,6 +108,24 @@
                 </div>
             </section>
 
+            <section id="hinh-anh" class="site-section public-gallery-section">
+                <div class="site-container">
+                    <div class="section-heading"><span>HÌNH ẢNH HOẠT ĐỘNG</span><h2>Khoảnh khắc Lại Sơn</h2><p>Không gian hình ảnh công khai của nhà trường; thư viện album động sẽ được bổ sung ở bước tiếp theo.</p></div>
+                    <div class="public-gallery-grid">
+                        <figure class="public-gallery-main"><img src="assets/banner-lai-son.png" alt="Hình ảnh Trường Lại Sơn"><figcaption><b>Trường học thân thiện</b><span>Tri thức hôm nay · Tương lai ngày mai</span></figcaption></figure>
+                        <div class="public-gallery-placeholder"><i class="fas fa-camera-retro"></i><b>Album hoạt động nhà trường</b><span>Ảnh mới sẽ được Ban quản trị cập nhật tại đây.</span></div>
+                        <div class="public-gallery-placeholder"><i class="fas fa-people-group"></i><b>Hoạt động học sinh</b><span>Sẵn sàng cho thư viện ảnh theo từng album.</span></div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="video" class="site-section public-video-section">
+                <div class="site-container">
+                    <div class="section-heading"><span>VIDEO HOẠT ĐỘNG</span><h2>Góc nhìn sinh động</h2><p>Khu vực dành cho video YouTube, Facebook hoặc video công khai của nhà trường.</p></div>
+                    <div class="public-video-empty"><div class="video-play-mark"><i class="fas fa-play"></i></div><div><b>Thư viện video đang sẵn sàng</b><span>Ở bước quản trị nội dung, Admin có thể thêm video mà không cần sửa mã nguồn.</span></div></div>
+                </div>
+            </section>
+
             <section id="tai-lieu" class="site-section document-section">
                 <div class="site-container">
                     <div class="section-heading"><span>THƯ VIỆN TÀI LIỆU</span><h2>Tài liệu & hướng dẫn</h2><p>Văn bản, biểu mẫu và tài liệu được nhà trường công khai để tra cứu thuận tiện.</p></div>
@@ -109,10 +133,20 @@
                 </div>
             </section>
 
+            <section id="lien-ket" class="site-section public-links-section">
+                <div class="site-container">
+                    <div class="section-heading"><span>LIÊN KẾT HỮU ÍCH</span><h2>Kết nối các hệ thống giáo dục</h2><p>Các website bên ngoài mở ở tab mới và không yêu cầu đăng nhập vào hệ thống quản lý học sinh của website này.</p></div>
+                    <div class="public-links-grid">
+                        <a href="https://ucnnzccazsgdkiengiang.vnedu.vn/v5/" target="_blank" rel="noopener noreferrer"><i class="fas fa-school"></i><div><b>VNEDU</b><span>Hệ thống đang sử dụng của nhà trường</span></div><i class="fas fa-arrow-up-right-from-square"></i></a>
+                        <a href="https://moet.gov.vn/" target="_blank" rel="noopener noreferrer"><i class="fas fa-landmark"></i><div><b>Bộ Giáo dục và Đào tạo</b><span>Cổng thông tin điện tử</span></div><i class="fas fa-arrow-up-right-from-square"></i></a>
+                    </div>
+                </div>
+            </section>
+
             <section id="lien-he" class="site-section contact-section">
                 <div class="site-container contact-grid">
                     <div class="contact-copy"><div class="section-heading section-heading-left"><span>LIÊN HỆ</span><h2>Kết nối với nhà trường</h2></div><p>Khi cần trao đổi công việc, vui lòng liên hệ theo các thông tin dưới đây.</p><div class="contact-items"><a href="tel:0942775343"><i class="fas fa-phone"></i><span><small>Điện thoại</small><b>0942 775 343</b></span></a><a href="mailto:vothanhdamkg1982@gmail.com"><i class="fas fa-envelope"></i><span><small>Email</small><b>vothanhdamkg1982@gmail.com</b></span></a><div><i class="fas fa-location-dot"></i><span><small>Địa chỉ</small><b>Ấp Bãi Nhà A, Đặc khu Kiên Hải, tỉnh An Giang</b></span></div></div></div>
-                    <div class="contact-map-placeholder"><i class="fas fa-map-location-dot"></i><strong>TRƯỜNG TIỂU HỌC<br>TRẦN QUỐC TOẢN</strong><span>Ấp Bãi Nhà A · Kiên Hải · An Giang</span><small>Bản đồ trực tuyến có thể tích hợp khi có đường dẫn vị trí chính thức.</small></div>
+                    <div class="contact-map-placeholder"><i class="fas fa-map-location-dot"></i><strong>TRƯỜNG TIỂU HỌC-TRUNG HỌC CƠ SỞ<br>&amp; TRUNG HỌC PHỔ THÔNG LẠI SƠN</strong><span>Ấp Bãi Nhà A · Kiên Hải · An Giang</span><small>Bản đồ trực tuyến có thể tích hợp khi có đường dẫn vị trí chính thức.</small></div>
                 </div>
             </section>
         </main>
@@ -120,7 +154,7 @@
         <footer class="site-footer">
             <div class="site-container footer-grid">
                 <div class="footer-brand"><div class="site-brand-mark site-brand-logo"><img src="assets/logo-lai-son.png" alt="Logo Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn"></div><div><strong>TRƯỜNG TIỂU HỌC-TRUNG HỌC CƠ SỞ & TRUNG HỌC PHỔ THÔNG LẠI SƠN</strong><p>Đặc khu Kiên Hải, tỉnh An Giang</p></div></div>
-                <div><h4>Liên kết nhanh</h4><a href="#trang-chu">Trang chủ</a><a href="#gioi-thieu">Giới thiệu</a><a href="#tai-lieu">Tài liệu</a></div>
+                <div><h4>Liên kết nhanh</h4><a href="#trang-chu">Trang chủ</a><a href="#gioi-thieu">Giới thiệu</a><a href="#tin-tuc">Tin tức</a><a href="#hinh-anh">Hình ảnh</a><a href="#video">Video</a><a href="#tai-lieu">Tài liệu</a><a href="#lien-ket">Liên kết</a></div>
                 <div><h4>Hỗ trợ</h4><a href="#">Hướng dẫn sử dụng</a><a href="#">Câu hỏi thường gặp</a><button class="footer-login-link" data-open-login>Đăng nhập hệ thống</button></div>
                 <div><h4>Liên hệ</h4><p><i class="fas fa-location-dot"></i> Ấp Bãi Nhà A, Đặc khu Kiên Hải, tỉnh An Giang</p><p><i class="fas fa-phone"></i> <a href="tel:0942775343">0942 775 343</a></p><p><i class="fas fa-envelope"></i> <a href="mailto:vothanhdamkg1982@gmail.com">vothanhdamkg1982@gmail.com</a></p></div>
             </div>
