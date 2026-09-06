@@ -6024,16 +6024,17 @@ function initPublicWebsite() {
     updatePublicScrollUI();
     backToTop?.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
 
-    // Có thể lấy tên trường/năm học đã lưu cục bộ mà không cần mở quyền anon trên Supabase.
+    // BƯỚC 148.5.8: cố định năm học hiện hành trên website công khai.
+    // Không đọc schoolYear cũ từ localStorage để tránh 2025-2026 ghi đè nội dung mới.
+    const publicSchoolYearEl = document.getElementById('publicSchoolYear');
+    if (publicSchoolYearEl) publicSchoolYearEl.textContent = '2026-2027';
+
+    // Đồng bộ lại cấu hình cục bộ để các lần mở sau không còn giữ năm học cũ.
     try {
         const localSettings = JSON.parse(localStorage.getItem('settings') || '{}');
-        const schoolYear = localSettings.schoolYear || localSettings.school_year;
-        // BƯỚC 143: tên trường trên website công khai dùng nhận diện cố định đã duyệt.
-        // Năm học vẫn có thể lấy từ cài đặt cục bộ của ứng dụng.
-        if (schoolYear) {
-            const el = document.getElementById('publicSchoolYear');
-            if (el) el.textContent = schoolYear;
-        }
+        localSettings.schoolName = 'Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn';
+        localSettings.schoolYear = '2026-2027';
+        localStorage.setItem('settings', JSON.stringify(localSettings));
     } catch (_) {}
 }
 

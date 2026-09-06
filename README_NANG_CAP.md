@@ -56,3 +56,23 @@ Không cần chạy SQL mới cho bước này.
 - Tên trường: Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn.
 - Năm học: 2026-2027.
 - Không thay đổi cơ sở dữ liệu, phân quyền, dữ liệu học sinh hay chức năng VNEDU.
+
+
+## BƯỚC 148.5.8 - SỬA NĂM HỌC TRANG CHỦ
+- Cố định hiển thị Năm học 2026-2027 trên website công khai.
+- Không để localStorage cũ (2025-2026) ghi đè năm học mới.
+- Đồng bộ localStorage về tên trường Lại Sơn và năm học 2026-2027.
+- Thêm version query cho script để hạn chế trình duyệt dùng JavaScript cache cũ.
+
+## Bước 148.5.9 - Banner động và logo Lại Sơn
+- Thay logo cũ bằng `assets/logo-lai-son.png` ở website, đăng nhập và footer.
+- Thêm `assets/banner-lai-son.png` làm banner hình ảnh.
+- Banner có chuyển động nhẹ: nổi, zoom chậm và hiệu ứng ánh sáng quét; không dùng nội dung "Lễ khai giảng" để có thể dùng lâu dài.
+- Không thay đổi dữ liệu, điểm, VNEDU, phân quyền hoặc SQL.
+
+
+## Bước 148.5.10
+- Bỏ hoàn toàn hai nút mũi tên và cụm chấm điều hướng banner ở hero.
+- Mở rộng banner chính chiếm xấp xỉ 2/3 chiều ngang hero trên desktop; phần nội dung trái xấp xỉ 1/3.
+- Thay banner hero bằng phiên bản khổ rộng mới.
+- Không thay đổi dữ liệu, Supabase, VNEDU, phân quyền hay nghiệp vụ quản lý.
