@@ -3,7 +3,7 @@
  * HỆ THỐNG QUẢN LÝ HỌC SINH TIỂU HỌC - JavaScript ES6
  * HỖ TRỢ NHIỀU MÔN HỌC (TIN HỌC & CÔNG NGHỆ)
  * ============================================================
- * Trường Tiểu học Trần Quốc Toản - Đặc khu Kiên Hải - An Giang
+ * Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn - Đặc khu Kiên Hải - An Giang
  * Giáo viên: Võ Thanh Đậm
  * Khối: 3, 4, 5
  * ============================================================
@@ -53,7 +53,7 @@ function renderWheel() {
                         <i class="fas fa-dharmachakra" style="color: var(--primary); font-size: 1.2rem;"></i>
                         <select id="wheelClassSelect" onchange="onWheelClassChange()" style="padding: 0.35rem 0.6rem; font-weight: 600;">
                             <option value="">-- Chọn lớp --</option>
-                            ${APP_STATE.classes.map(c => `
+                            ${(hasAssignedScope() ? getAccessibleClassesForSubject('') : APP_STATE.classes).map(c => `
                                 <option value="${c.id}" data-name="${c.name}">${c.name} - Khối ${c.grade}</option>
                             `).join('')}
                         </select>
@@ -186,7 +186,7 @@ function onWheelClassChange() {
 }
 
 function loadWheelStudents(classId) {
-    const classObj = APP_STATE.classes.find(c => c.id === classId);
+    const classObj = (APP_STATE.allClasses?.length ? APP_STATE.allClasses : APP_STATE.classes).find(c => c.id === classId);
     if (!classObj) {
         showToast('Không tìm thấy lớp!', 'error');
         return;
@@ -938,6 +938,7 @@ const APP_STATE = {
     currentPage: 'dashboard',
     students: [],
     classes: [],
+    allClasses: [],
     scores: {},
     attendance: [],
     rewards: [],
@@ -945,8 +946,8 @@ const APP_STATE = {
     learningComments: [],
     files: [],
     settings: {
-        schoolName: 'Trường Tiểu học Trần Quốc Toản',
-        schoolYear: '2025-2026',
+        schoolName: 'Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn',
+        schoolYear: '2026-2027',
         theme: 'light',
         logo: '',
         teacherName: 'Võ Thanh Đậm'
@@ -957,9 +958,19 @@ darkMode: false,
 currentSubject: 'Tin học',
 studentSubject: 'Tin học',
 statSubject: '',
+statClass: '',
 searchSubject: '',
 classMap: {},
-subjectCatalog: []
+subjectCatalog: [],
+allSubjectCatalog: [],
+currentUserRole: 'teacher',
+currentUserActive: true,
+currentUserId: null,
+currentUserEmail: '',
+currentUserDisplayName: '',
+currentUserAccessScope: 'all',
+currentUserAssignments: [],
+userAccessLoaded: false
 };
 
 const SUBJECT_CONFIG = [
@@ -979,6 +990,193 @@ const SUBJECT_CONFIG = [
 ];
 
 const SUBJECTS = SUBJECT_CONFIG.map(subject => subject.name);
+
+// ============================================================
+// PHÂN QUYỀN TOÀN CỤC - BƯỚC 118
+// Chỉ nạp trạng thái quyền và cung cấp helper dùng chung.
+// Chưa áp dụng khóa CRUD hàng loạt ở bước này.
+// ============================================================
+function isAdmin() {
+    return APP_STATE.currentUserActive !== false && APP_STATE.currentUserRole === 'admin';
+}
+
+function isTeacher() {
+    return APP_STATE.currentUserActive !== false && APP_STATE.currentUserRole === 'teacher';
+}
+
+function isViewer() {
+    return APP_STATE.currentUserActive !== false && APP_STATE.currentUserRole === 'viewer';
+}
+
+function canManageSystem() {
+    return isAdmin();
+}
+
+function canEditData() {
+    return isAdmin() || isTeacher();
+}
+
+function requireEditPermission(action = 'thao tác này') {
+    if (canEditData()) return true;
+    showToast(`Tài khoản chỉ xem không được phép ${action}.`, 'warning', 2200);
+    return false;
+}
+
+function applyViewerReadOnlyUI() {
+    if (!isViewer()) return;
+    const root = document.getElementById('pageContainer');
+    if (!root) return;
+
+    const writeHandlers = [
+        'openAddStudent','editStudent','deleteStudent','deleteSelectedStudents','importExcel',
+        'openAddClass','editClass','deleteClass','updateScore','saveScore','importScoresExcel',
+        'updateAttendanceStatus','saveAttendance','openAddReward','deleteReward',
+        'openAddDiscipline','deleteDiscipline','openAddLearningComment','editLearningComment','deleteLearningComment',
+        'openUploadFile','editFile','deleteFile','saveSettings','saveSubjectConfig',
+        'mergeBackupData','fullRestoreBackupData','saveUserRole'
+    ];
+
+    root.querySelectorAll('button,[onclick]').forEach(el => {
+        const handler = el.getAttribute('onclick') || '';
+        if (writeHandlers.some(name => handler.includes(name))) {
+            el.disabled = true;
+            el.style.opacity = '0.55';
+            el.style.cursor = 'not-allowed';
+            el.title = 'Tài khoản Viewer chỉ được xem';
+        }
+    });
+
+    root.querySelectorAll('input[onchange],select[onchange],textarea[onchange]').forEach(el => {
+        const handler = el.getAttribute('onchange') || '';
+        if (writeHandlers.some(name => handler.includes(name))) {
+            el.disabled = true;
+            el.title = 'Tài khoản Viewer chỉ được xem';
+        }
+    });
+
+    ['importFileInput','scoreImportFile','mergeBackupInput','fullRestoreBackupInput'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = true;
+    });
+}
+
+function isActiveUser() {
+    return APP_STATE.currentUserActive !== false;
+}
+
+function updateCurrentUserHeader() {
+    const nameEl = document.getElementById('topbarCurrentUserName');
+    if (!nameEl) return;
+
+    const displayName = (APP_STATE.currentUserDisplayName || '').trim();
+    const email = (APP_STATE.currentUserEmail || '').trim();
+    nameEl.textContent = displayName || email || 'Người dùng';
+    nameEl.title = email || nameEl.textContent;
+}
+
+let userAccessLoadPromise = null;
+
+async function loadCurrentUserAccess(force = false) {
+    // Tránh gọi lặp app3_user_roles khi nhiều luồng khởi động cùng kiểm tra session.
+    if (!force && APP_STATE.userAccessLoaded && APP_STATE.currentUserId && APP_STATE.currentUserActive !== false) {
+        updateCurrentUserHeader();
+        return true;
+    }
+
+    if (!force && userAccessLoadPromise) {
+        return userAccessLoadPromise;
+    }
+
+    userAccessLoadPromise = (async () => {
+        try {
+            // getSession() dùng session cục bộ của Supabase Auth, tránh request /auth/v1/user lặp lại.
+            const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+            if (sessionError) throw sessionError;
+            const user = session?.user || null;
+
+            if (!user) {
+                APP_STATE.currentUserId = null;
+                APP_STATE.currentUserEmail = '';
+                APP_STATE.currentUserDisplayName = '';
+                APP_STATE.currentUserRole = 'teacher';
+                APP_STATE.currentUserActive = false;
+                APP_STATE.currentUserAccessScope = 'all';
+                APP_STATE.currentUserAssignments = [];
+                APP_STATE.userAccessLoaded = false;
+                updateCurrentUserHeader();
+                return false;
+            }
+
+            const { data: roleRow, error: roleError } = await supabase
+                .from('app3_user_roles')
+                .select('user_id,email,display_name,role,active,access_scope')
+                .eq('user_id', user.id)
+                .maybeSingle();
+
+            if (roleError) throw roleError;
+
+            const role = ['admin', 'teacher', 'viewer'].includes(roleRow?.role)
+                ? roleRow.role
+                : 'teacher';
+            const active = roleRow?.active !== false;
+
+            APP_STATE.currentUserId = user.id;
+            APP_STATE.currentUserEmail = roleRow?.email || user.email || '';
+            APP_STATE.currentUserDisplayName = (roleRow?.display_name || '').trim() || APP_STATE.currentUserEmail;
+            APP_STATE.currentUserRole = role;
+            APP_STATE.currentUserActive = active;
+            APP_STATE.currentUserAccessScope = roleRow?.access_scope === 'assigned' ? 'assigned' : 'all';
+            APP_STATE.currentUserAssignments = [];
+
+            if (APP_STATE.currentUserAccessScope === 'assigned') {
+                const { data: assignmentRows, error: assignmentError } = await supabase
+                    .from('app3_teacher_assignments')
+                    .select('subject_id,class_id,active')
+                    .eq('user_id', user.id)
+                    .eq('active', true);
+                if (assignmentError) throw assignmentError;
+                APP_STATE.currentUserAssignments = assignmentRows || [];
+            }
+
+            APP_STATE.userAccessLoaded = true;
+            updateCurrentUserHeader();
+
+            console.log('USER ACCESS:', {
+                email: APP_STATE.currentUserEmail,
+                displayName: APP_STATE.currentUserDisplayName,
+                role: APP_STATE.currentUserRole,
+                active: APP_STATE.currentUserActive,
+                accessScope: APP_STATE.currentUserAccessScope,
+                assignments: APP_STATE.currentUserAssignments.length
+            });
+
+            if (!active) {
+                await supabase.auth.signOut();
+                const loginScreen = document.getElementById('loginScreen');
+                const app = document.getElementById('app');
+                if (loginScreen) loginScreen.style.display = 'flex';
+                if (loginScreen) loginScreen.classList.remove('hidden');
+                if (app) app.classList.add('hidden');
+                showToast('Tài khoản này đã bị vô hiệu hóa. Vui lòng liên hệ quản trị viên.', 'error');
+                return false;
+            }
+
+            return true;
+        } catch (err) {
+            console.error('Không thể nạp quyền người dùng:', err);
+            APP_STATE.userAccessLoaded = false;
+            showToast('Không thể xác định quyền tài khoản: ' + err.message, 'error');
+            return false;
+        }
+    })();
+
+    try {
+        return await userAccessLoadPromise;
+    } finally {
+        userAccessLoadPromise = null;
+    }
+}
+
 function getSubjectId(subjectName) {
     const catalogSubject = APP_STATE.subjectCatalog?.find(
         subject => subject.name === subjectName
@@ -993,71 +1191,330 @@ function getSubjectId(subjectName) {
     )?.id || null;
 }
 
+
+// ============================================================
+// PHẠM VI HIỂN THỊ THEO PHÂN CÔNG - BƯỚC 120.1
+// Chỉ giới hạn dữ liệu/selector hiển thị. Chưa thay thế RLS bảo mật.
+// ============================================================
+function hasAssignedScope() {
+    return !isAdmin() && APP_STATE.currentUserAccessScope === 'assigned';
+}
+
+function getAssignedSubjectIds() {
+    return new Set(
+        (APP_STATE.currentUserAssignments || [])
+            .filter(a => a.active !== false)
+            .map(a => a.subject_id)
+            .filter(Boolean)
+    );
+}
+
+function getAssignedClassIds(subjectName = '') {
+    if (!hasAssignedScope()) {
+        return new Set((APP_STATE.classes || []).map(c => c.id));
+    }
+
+    const subjectId = subjectName ? getSubjectId(subjectName) : null;
+    return new Set(
+        (APP_STATE.currentUserAssignments || [])
+            .filter(a => a.active !== false && (!subjectId || a.subject_id === subjectId))
+            .map(a => a.class_id)
+            .filter(Boolean)
+    );
+}
+
+function getAccessibleClassesForSubject(subjectName = '') {
+    const source = APP_STATE.allClasses?.length ? APP_STATE.allClasses : APP_STATE.classes;
+    if (!hasAssignedScope()) return source || [];
+    const allowedIds = getAssignedClassIds(subjectName);
+    return (source || []).filter(c => allowedIds.has(c.id));
+}
+
+function getVisibleSubjectNames() {
+    // Với phạm vi assigned, tuyệt đối không fallback sang toàn bộ SUBJECTS.
+    // Nếu chưa tải được phân công thì trả về [] để tránh lộ môn ngoài quyền.
+    if (hasAssignedScope()) {
+        return (APP_STATE.subjectCatalog || []).map(subject => subject.name);
+    }
+    return APP_STATE.subjectCatalog?.length
+        ? APP_STATE.subjectCatalog.map(subject => subject.name)
+        : SUBJECTS;
+}
+
+
+// ============================================================
+// Bộ chọn ngữ cảnh LỚP -> MÔN -> HỌC SINH
+// Dùng cho Khen thưởng, Kỷ luật, Nhận xét học tập.
+// ============================================================
+function getContextSubjectsForClass(classId) {
+    if (!classId) return [];
+
+    const classSource = APP_STATE.allClasses?.length
+        ? APP_STATE.allClasses
+        : APP_STATE.classes;
+    const cls = (classSource || []).find(item => item.id === classId);
+    if (!cls) return [];
+
+    let subjects = (APP_STATE.subjectCatalog || []).filter(subject => subject.active !== false);
+
+    if (hasAssignedScope()) {
+        const allowedSubjectIds = new Set(
+            (APP_STATE.currentUserAssignments || [])
+                .filter(a => a.active !== false && a.class_id === classId)
+                .map(a => a.subject_id)
+        );
+        subjects = subjects.filter(subject => allowedSubjectIds.has(subject.id));
+    }
+
+    const classGrade = String(cls.grade ?? '');
+    return subjects.filter(subject => {
+        const grades = Array.isArray(subject.grades) ? subject.grades.map(String) : [];
+        return !grades.length || grades.includes(classGrade);
+    });
+}
+
+function getContextStudentsForClass(classId) {
+    if (!classId) return [];
+    return (APP_STATE.students || []).filter(student => student.class_id === classId);
+}
+
+function getContextClassName(classId) {
+    const source = APP_STATE.allClasses?.length ? APP_STATE.allClasses : APP_STATE.classes;
+    return (source || []).find(cls => cls.id === classId)?.name || '—';
+}
+
+function isAssignedPairAccessible(classId, subjectId) {
+    if (!hasAssignedScope()) return true;
+    if (!classId || !subjectId) return false;
+    return (APP_STATE.currentUserAssignments || []).some(a =>
+        a.active !== false && a.class_id === classId && a.subject_id === subjectId
+    );
+}
+
+function setupClassSubjectStudentSelectors({
+    classSelectId,
+    subjectSelectId,
+    studentSelectId,
+    initialClassId = '',
+    initialSubjectId = '',
+    initialStudentUuid = ''
+}) {
+    const classSelect = document.getElementById(classSelectId);
+    const subjectSelect = document.getElementById(subjectSelectId);
+    const studentSelect = document.getElementById(studentSelectId);
+    if (!classSelect || !subjectSelect || !studentSelect) return;
+
+    const renderStudents = () => {
+        const classId = classSelect.value;
+        const subjectId = subjectSelect.value;
+        const students = classId && subjectId ? getContextStudentsForClass(classId) : [];
+        studentSelect.innerHTML = `
+            <option value="">-- Chọn học sinh --</option>
+            ${students.map(student => `
+                <option value="${student.db_uuid}">${student.fullName}</option>
+            `).join('')}
+        `;
+        studentSelect.disabled = !classId || !subjectId;
+        if (initialStudentUuid && students.some(student => student.db_uuid === initialStudentUuid)) {
+            studentSelect.value = initialStudentUuid;
+        }
+    };
+
+    const renderSubjects = () => {
+        const classId = classSelect.value;
+        const subjects = getContextSubjectsForClass(classId);
+        subjectSelect.innerHTML = `
+            <option value="">-- Chọn môn --</option>
+            ${subjects.map(subject => `
+                <option value="${subject.id}">${subject.name}</option>
+            `).join('')}
+        `;
+        subjectSelect.disabled = !classId;
+
+        if (initialSubjectId && subjects.some(subject => subject.id === initialSubjectId)) {
+            subjectSelect.value = initialSubjectId;
+        } else if (subjects.length === 1) {
+            subjectSelect.value = subjects[0].id;
+        }
+        renderStudents();
+    };
+
+    classSelect.addEventListener('change', () => {
+        initialSubjectId = '';
+        initialStudentUuid = '';
+        renderSubjects();
+    });
+    subjectSelect.addEventListener('change', () => {
+        initialStudentUuid = '';
+        renderStudents();
+    });
+
+    if (initialClassId && [...classSelect.options].some(option => option.value === initialClassId)) {
+        classSelect.value = initialClassId;
+    } else if (classSelect.options.length === 2) {
+        classSelect.selectedIndex = 1;
+    }
+    renderSubjects();
+}
+
+async function refreshCurrentUserAssignments() {
+    if (!hasAssignedScope() || !APP_STATE.currentUserId) return;
+    const { data, error } = await supabase
+        .from('app3_teacher_assignments')
+        .select('subject_id,class_id,active')
+        .eq('user_id', APP_STATE.currentUserId)
+        .eq('active', true);
+    if (error) throw error;
+    APP_STATE.currentUserAssignments = data || [];
+    console.log('ASSIGNMENTS REFRESH:', APP_STATE.currentUserAssignments);
+}
+
+function applyCurrentUserDisplayScope() {
+    if (!hasAssignedScope()) return;
+
+    const subjectIds = getAssignedSubjectIds();
+    APP_STATE.subjectCatalog = (APP_STATE.allSubjectCatalog || [])
+        .filter(subject => subject.active !== false && subjectIds.has(subject.id));
+
+    const allAssignedClassIds = getAssignedClassIds();
+    APP_STATE.classes = (APP_STATE.allClasses || [])
+        .filter(c => allAssignedClassIds.has(c.id));
+
+    APP_STATE.classMap = {};
+    APP_STATE.classes.forEach(c => { APP_STATE.classMap[c.name] = c.id; });
+
+    console.log('DISPLAY SCOPE:', {
+        subjects: APP_STATE.subjectCatalog.map(s => s.name),
+        classes: APP_STATE.classes.map(c => c.name),
+        assignments: APP_STATE.currentUserAssignments
+    });
+
+    const visibleSubjects = APP_STATE.subjectCatalog.map(s => s.name);
+    ['currentSubject', 'studentSubject', 'statSubject', 'searchSubject'].forEach(key => {
+        if (!visibleSubjects.includes(APP_STATE[key])) {
+            APP_STATE[key] = visibleSubjects[0] || '';
+        }
+    });
+}
+
 // ============================================================
 // 2. FUNCTIONS TẢI DỮ LIỆU TỪ SUPABASE
 // ============================================================
 
 async function loadAllData() {
     const loadStartTime = performance.now();
-console.time('LOAD ALL DATA');
+    console.time('LOAD ALL DATA');
     showLoading();
+
     try {
-                try {
-            const { data: subjectsData, error: subjectsErr } = await supabase
+        // BƯỚC 122.6C: quyền phải có trước dữ liệu để phạm vi assigned được áp đúng.
+        if (!APP_STATE.userAccessLoaded) {
+            const accessOk = await loadCurrentUserAccess();
+            if (!accessOk) return;
+        }
+
+        // Nhóm 1: danh mục môn và lớp độc lập -> tải song song.
+        const [subjectsResult, classesResult] = await Promise.all([
+            supabase
                 .from('app3_subjects')
                 .select('id, name, grades, active')
-                .eq('active', true);
+                .order('name'),
+            supabase
+                .from('app3_classes')
+                .select('*')
+                .order('name')
+        ]);
 
-            if (subjectsErr) throw subjectsErr;
-
-            APP_STATE.subjectCatalog = subjectsData || [];
-
-            console.log(
-                'DANH MỤC MÔN HỌC:',
-                APP_STATE.subjectCatalog
-            );
-        } catch (subjectLoadError) {
+        if (subjectsResult.error) {
             console.warn(
                 'Không tải được app3_subjects, tiếp tục dùng cấu hình môn mặc định:',
-                subjectLoadError
+                subjectsResult.error
             );
-
-            APP_STATE.subjectCatalog = SUBJECT_CONFIG;
+            APP_STATE.allSubjectCatalog = SUBJECT_CONFIG.map(subject => ({
+                ...subject,
+                grades: [1, 2, 3, 4, 5],
+                active: true
+            }));
+        } else {
+            APP_STATE.allSubjectCatalog = subjectsResult.data || [];
         }
-        const availableSubjectNames =
-    APP_STATE.subjectCatalog?.map(subject => subject.name) || [];
 
-if (
-    availableSubjectNames.length > 0 &&
-    !availableSubjectNames.includes(APP_STATE.currentSubject)
-) {
-    APP_STATE.currentSubject = availableSubjectNames[0];
-}
-if (
-    availableSubjectNames.length > 0 &&
-    !availableSubjectNames.includes(APP_STATE.studentSubject)
-) {
-    APP_STATE.studentSubject = availableSubjectNames[0];
-}
-        const { data: classes, error: classErr } = await supabase
-            .from('app3_classes')
-            .select('*')
-            .order('name');
-        if (classErr) throw classErr;
-        APP_STATE.classes = classes || [];
+        APP_STATE.subjectCatalog = APP_STATE.allSubjectCatalog.filter(subject => subject.active !== false);
+        console.log('DANH MỤC MÔN HỌC:', APP_STATE.subjectCatalog);
+
+        if (classesResult.error) throw classesResult.error;
+        APP_STATE.allClasses = classesResult.data || [];
+        APP_STATE.classes = APP_STATE.allClasses;
         APP_STATE.classMap = {};
         APP_STATE.classes.forEach(c => { APP_STATE.classMap[c.name] = c.id; });
 
-        const { data: students, error: studentErr } = await supabase
-            .from('app3_students')
-            .select('*, app3_classes(name)')
-            .order('full_name');
-        if (studentErr) throw studentErr;
-        
-        APP_STATE.students = (students || []).map(s => ({
+        // Phân công đã được nạp cùng loadCurrentUserAccess(). Không query lại ở đây.
+        applyCurrentUserDisplayScope();
+
+        const visibleSubjectNames = APP_STATE.subjectCatalog.map(subject => subject.name);
+        ['currentSubject', 'studentSubject', 'statSubject', 'searchSubject'].forEach(key => {
+            if (visibleSubjectNames.length > 0 && !visibleSubjectNames.includes(APP_STATE[key])) {
+                APP_STATE[key] = visibleSubjectNames[0];
+            }
+        });
+
+        // Nhóm 2: các bảng nghiệp vụ độc lập -> tải song song.
+        const [
+            studentsResult,
+            scoresResult,
+            attendanceResult,
+            rewardsResult,
+            disciplinesResult,
+            learningCommentsResult,
+            filesResult,
+            settingsResult
+        ] = await Promise.all([
+            supabase
+                .from('app3_students')
+                .select('*, app3_classes(name)')
+                .order('full_name'),
+            supabase
+                .from('app3_scores')
+                .select('*'),
+            supabase
+                .from('app3_attendance')
+                .select('*'),
+            supabase
+                .from('app3_rewards')
+                .select('*')
+                .order('date', { ascending: false }),
+            supabase
+                .from('app3_disciplines')
+                .select('*')
+                .order('date', { ascending: false }),
+            supabase
+                .from('app3_learning_comments')
+                .select('*')
+                .order('comment_datetime', { ascending: false }),
+            supabase
+                .from('app3_files')
+                .select('*')
+                .order('created_at', { ascending: false }),
+            supabase
+                .from('app3_settings')
+                .select('*')
+                .limit(1)
+                .maybeSingle()
+        ]);
+
+        if (studentsResult.error) throw studentsResult.error;
+        if (scoresResult.error) throw scoresResult.error;
+        if (attendanceResult.error) throw attendanceResult.error;
+        if (rewardsResult.error) throw rewardsResult.error;
+        if (disciplinesResult.error) throw disciplinesResult.error;
+        if (learningCommentsResult.error) throw learningCommentsResult.error;
+        if (filesResult.error) throw filesResult.error;
+        if (settingsResult.error) throw settingsResult.error;
+
+        APP_STATE.students = (studentsResult.data || []).map(s => ({
             ...s,
             db_uuid: s.id,
-            class: s.app3_classes?.name || s.class_code || s.class || '', 
+            class: s.app3_classes?.name || s.class_code || s.class || '',
             id: s.student_code,
             fullName: s.full_name,
             dob: s.dob,
@@ -1075,46 +1532,47 @@ if (
             grade: s.grade,
             class_id: s.class_id
         }));
-        console.log(
-    'KIỂM TRA STUDENTS:',
-    APP_STATE.students.map(s => ({
-        db_uuid: s.db_uuid,
-        id: s.id,
-        fullName: s.fullName,
-        class_id: s.class_id
-    }))
-);
 
-        const { data: scoresData, error: scoreErr } = await supabase
-            .from('app3_scores')
-            .select('*');
-        if (scoreErr) throw scoreErr;
+        if (hasAssignedScope()) {
+            const allowedClassIds = getAssignedClassIds();
+            APP_STATE.students = APP_STATE.students.filter(student => allowedClassIds.has(student.class_id));
+        }
+
+        console.log('KIỂM TRA STUDENTS:', APP_STATE.students.map(s => ({
+            db_uuid: s.db_uuid,
+            id: s.id,
+            fullName: s.fullName,
+            class_id: s.class_id
+        })));
+
+        // Lập map UUID -> học sinh một lần để tránh find() lặp khi xử lý điểm/điểm danh.
+        const studentByUuid = new Map(APP_STATE.students.map(student => [student.db_uuid, student]));
+
         APP_STATE.scores = {};
-        (scoresData || []).forEach(rec => {
-            const studentUuid = rec.student_id;
-            const student = APP_STATE.students.find(s => s.db_uuid === studentUuid);
-            if (student) {
-                const studentId = student.id;
-                if (!APP_STATE.scores[studentId]) APP_STATE.scores[studentId] = {};
-                const subject = rec.subject;
-                APP_STATE.scores[studentId][subject] = {
-                    giuaKy1: rec.giua_ky_1 || '',
-                    cuoiKy1: rec.cuoi_ky_1 !== null ? rec.cuoi_ky_1 : null,
-                    giuaKy2: rec.giua_ky_2 || '',
-                    cuoiKy2: rec.cuoi_ky_2 !== null ? rec.cuoi_ky_2 : null,
-                    competence: rec.competence || '',
-                    quality: rec.quality || ''
-                };
-            }
+        (scoresResult.data || []).forEach(rec => {
+            const student = studentByUuid.get(rec.student_id);
+            if (!student) return;
+            const studentId = student.id;
+            if (!APP_STATE.scores[studentId]) APP_STATE.scores[studentId] = {};
+            APP_STATE.scores[studentId][rec.subject] = {
+                giuaKy1: normalizeVnEduRating(rec.giua_ky_1 || ''),
+                cuoiKy1: rec.cuoi_ky_1 !== null ? rec.cuoi_ky_1 : null,
+                giuaKy2: normalizeVnEduRating(rec.giua_ky_2 || ''),
+                cuoiKy2: rec.cuoi_ky_2 !== null ? rec.cuoi_ky_2 : null,
+                competence: rec.competence || '',
+                quality: rec.quality || '',
+                xepLoaiCuoiKy1: normalizeVnEduRating(rec.xep_loai_cuoi_ky_1 || ''),
+                xepLoaiCuoiKy2: normalizeVnEduRating(rec.xep_loai_cuoi_ky_2 || ''),
+                cuoiKy2SauThiLai: rec.cuoi_ky_2_sau_thi_lai !== null ? rec.cuoi_ky_2_sau_thi_lai : null,
+                xepLoaiCuoiKy2SauThiLai: normalizeVnEduRating(rec.xep_loai_cuoi_ky_2_sau_thi_lai || ''),
+                nhanXetGk1: rec.nhan_xet_gk1 || '', nhanXetCk1: rec.nhan_xet_ck1 || '',
+                nhanXetGk2: rec.nhan_xet_gk2 || '', nhanXetCk2: rec.nhan_xet_ck2 || ''
+            };
         });
 
-        const { data: attendance, error: attErr } = await supabase
-            .from('app3_attendance')
-            .select('*');
-        if (attErr) throw attErr;
         APP_STATE.attendance = [];
         const attMap = {};
-        (attendance || []).forEach(rec => {
+        (attendanceResult.data || []).forEach(rec => {
             const key = `${rec.attendance_date}_${rec.class_id}`;
             if (!attMap[key]) {
                 attMap[key] = {
@@ -1125,7 +1583,7 @@ if (
                 };
                 APP_STATE.attendance.push(attMap[key]);
             }
-            const student = APP_STATE.students.find(s => s.db_uuid === rec.student_id);
+            const student = studentByUuid.get(rec.student_id);
             if (student) {
                 attMap[key].records.push({
                     studentId: student.id,
@@ -1134,57 +1592,43 @@ if (
             }
         });
 
-        const { data: rewards, error: rewErr } = await supabase
-            .from('app3_rewards')
-            .select('*')
-            .order('date', { ascending: false });
-        if (rewErr) throw rewErr;
-        APP_STATE.rewards = (rewards || []).map(r => ({
+        APP_STATE.rewards = (rewardsResult.data || []).map(r => ({
             id: r.id,
             studentId: r.student_id,
+            classId: r.class_id,
+            subjectId: r.subject_id,
+            subject: r.subject,
             date: r.date,
             content: r.content,
             decisionBy: r.decision_by
-        }));
+        })).filter(r => isAssignedPairAccessible(r.classId, r.subjectId));
 
-        const { data: disciplines, error: discErr } = await supabase
-            .from('app3_disciplines')
-            .select('*')
-            .order('date', { ascending: false });
-        if (discErr) throw discErr;
-        APP_STATE.disciplines = (disciplines || []).map(d => ({
+        APP_STATE.disciplines = (disciplinesResult.data || []).map(d => ({
             id: d.id,
             studentId: d.student_id,
+            classId: d.class_id,
+            subjectId: d.subject_id,
+            subject: d.subject,
             date: d.date,
             content: d.content,
             decisionBy: d.decision_by
+        })).filter(d => isAssignedPairAccessible(d.classId, d.subjectId));
+
+        APP_STATE.learningComments = (learningCommentsResult.data || []).map(c => ({
+            id: c.id,
+            studentId: c.student_id,
+            classId: c.class_id,
+            subjectId: c.subject_id,
+            commentDatetime: c.comment_datetime,
+            subject: c.subject,
+            commentType: c.comment_type,
+            content: c.content,
+            teacherName: c.teacher_name,
+            createdAt: c.created_at,
+            updatedAt: c.updated_at
         }));
-// Tải nhận xét học tập
-const { data: learningComments, error: learningCommentsErr } = await supabase
-    .from('app3_learning_comments')
-    .select('*')
-    .order('comment_datetime', { ascending: false });
 
-if (learningCommentsErr) throw learningCommentsErr;
-
-APP_STATE.learningComments = (learningComments || []).map(c => ({
-    id: c.id,
-    studentId: c.student_id,
-    classId: c.class_id,
-    commentDatetime: c.comment_datetime,
-    subject: c.subject,
-    commentType: c.comment_type,
-    content: c.content,
-    teacherName: c.teacher_name,
-    createdAt: c.created_at,
-    updatedAt: c.updated_at
-}));
-        const { data: files, error: fileErr } = await supabase
-            .from('app3_files')
-            .select('*')
-            .order('created_at', { ascending: false });
-        if (fileErr) throw fileErr;
-        APP_STATE.files = (files || []).map(f => ({
+        APP_STATE.files = (filesResult.data || []).map(f => ({
             id: f.id,
             name: f.file_name,
             type: f.file_type,
@@ -1195,12 +1639,7 @@ APP_STATE.learningComments = (learningComments || []).map(c => ({
             url: f.file_url
         }));
 
-        const { data: settings, error: setErr } = await supabase
-            .from('app3_settings')
-            .select('*')
-            .limit(1)
-            .maybeSingle();
-        if (setErr) throw setErr;
+        const settings = settingsResult.data;
         if (settings) {
             APP_STATE.settings = {
                 schoolName: settings.school_name || APP_STATE.settings.schoolName,
@@ -1211,6 +1650,11 @@ APP_STATE.learningComments = (learningComments || []).map(c => ({
             };
         }
 
+        // BƯỚC 148.5.7: cấu hình nhận diện tạm dùng cho năm học 2026-2027.
+        // Giữ cố định tại runtime để dữ liệu app3_settings cũ không ghi đè tên trường/năm học mới.
+        APP_STATE.settings.schoolName = 'Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn';
+        APP_STATE.settings.schoolYear = '2026-2027';
+
         if (APP_STATE.settings.theme === 'dark') {
             document.documentElement.setAttribute('data-theme', 'dark');
             APP_STATE.darkMode = true;
@@ -1220,15 +1664,13 @@ APP_STATE.learningComments = (learningComments || []).map(c => ({
         }
 
         updateClassCounts();
-        console.timeEnd('LOAD ALL DATA');
-console.log(
-    `Tổng thời gian loadAllData: ${(performance.now() - loadStartTime).toFixed(0)} ms`
-);
         console.log('Đã tải dữ liệu từ Supabase thành công!');
     } catch (err) {
         console.error('Lỗi tải dữ liệu:', err);
         showToast('Không thể tải dữ liệu từ Supabase. Vui lòng kiểm tra kết nối.', 'error');
     } finally {
+        console.timeEnd('LOAD ALL DATA');
+        console.log(`Tổng thời gian loadAllData: ${(performance.now() - loadStartTime).toFixed(0)} ms`);
         hideLoading();
     }
 }
@@ -1240,6 +1682,44 @@ function updateClassCounts() {
         cls.male = list.filter(s => s.gender === 'Nam').length;
         cls.female = list.filter(s => s.gender === 'Nữ').length;
     });
+}
+
+// ============================================================
+// VNEDU HELPERS - ĐẶT Ở PHẠM VI TOÀN CỤC
+// Các hàm này được loadAllData() và bảng Điểm dùng trước DOMContentLoaded.
+// ============================================================
+function normalizeVnEduText(v) {
+    return String(v ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function escapeHtmlAttr(v) {
+    return String(v ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function normalizeVnEduRating(v) {
+    const raw = normalizeVnEduText(v);
+    if (!raw) return '';
+    const x = raw.toUpperCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/Đ/g, 'D');
+    if (['T', '2', 'HTT', 'HOAN THANH TOT'].includes(x)) return 'Hoàn thành tốt';
+    if (['H', '1', 'HT', 'HOAN THANH'].includes(x)) return 'Hoàn thành';
+    if (['C', '0', 'CHT', 'CHUA HOAN THANH'].includes(x)) return 'Chưa hoàn thành';
+    return raw;
+}
+
+function toVnEduRating(v) {
+    const n = normalizeVnEduRating(v);
+    if (n === 'Hoàn thành tốt') return 'T';
+    if (n === 'Hoàn thành') return 'H';
+    if (n === 'Chưa hoàn thành') return 'C';
+    return normalizeVnEduText(v);
 }
 
 // ============================================================
@@ -1329,398 +1809,157 @@ function hideLoading() { document.getElementById('loadingOverlay').classList.add
 
 function renderLearningComments() {
     const comments = APP_STATE.learningComments || [];
+    const studentMap = new Map((APP_STATE.students || []).map(student => [student.db_uuid, student]));
 
     return `
         <div class="card">
             <div class="flex-between mb-2">
                 <div>
-                    <h3 class="card-title">
-                        <i class="fas fa-book-open"></i>
-                        Nhận xét học tập
-                    </h3>
-
-                    <p class="text-muted">
-                        Ghi nhận quá trình tiến bộ, cố gắng hoặc những điểm cần hỗ trợ của học sinh.
-                    </p>
+                    <h3 class="card-title"><i class="fas fa-book-open"></i> Nhận xét học tập</h3>
+                    <p class="text-muted">Ghi nhận quá trình tiến bộ, cố gắng hoặc những điểm cần hỗ trợ của học sinh.</p>
                 </div>
-
-                <button
-                    class="btn btn-primary btn-sm"
-                    onclick="openAddLearningComment()"
-                >
-                    <i class="fas fa-plus"></i>
-                    Thêm nhận xét
+                <button class="btn btn-primary btn-sm" onclick="openAddLearningComment()">
+                    <i class="fas fa-plus"></i> Thêm nhận xét
                 </button>
             </div>
-<div class="form-group mb-2">
-    <label for="learningCommentStudentFilter">
-        <strong>Chọn học sinh</strong>
-    </label>
-
-    <select
-        id="learningCommentStudentFilter"
-        onchange="filterLearningCommentsByStudent(this.value)"
-    >
-        <option value="">-- Tất cả học sinh --</option>
-
-        ${
-            APP_STATE.students
-                .map(s => `
-                    <option value="${s.db_uuid}">
-                        ${s.fullName}
-                    </option>
-                `)
-                .join('')
-        }
-    </select>
-</div>
+            <div class="form-group mb-2">
+                <label for="learningCommentStudentFilter"><strong>Chọn học sinh</strong></label>
+                <select id="learningCommentStudentFilter" onchange="filterLearningCommentsByStudent(this.value)">
+                    <option value="">-- Tất cả học sinh --</option>
+                    ${(APP_STATE.students || []).map(s => `<option value="${s.db_uuid}">${s.fullName}</option>`).join('')}
+                </select>
+            </div>
             <div class="table-wrapper">
                 <table>
                     <thead>
-    <tr>
-        <th>STT</th>
-        <th>Học sinh</th>
-        <th>Thời điểm</th>
-        <th>Môn</th>
-        <th>Diễn biến</th>
-        <th>Nội dung</th>
-        <th>Thao tác</th>
-    </tr>
-</thead>
-
+                        <tr>
+                            <th>STT</th><th>Lớp</th><th>Môn</th><th>Học sinh</th><th>Thời điểm</th>
+                            <th>Diễn biến</th><th>Nội dung</th><th>Thao tác</th>
+                        </tr>
+                    </thead>
                     <tbody id="learningCommentsTableBody">
-                        ${
-                            comments.length === 0
-                            ? `
-                                <tr>
-                                    <td
-                                        colspan="7"
-                                        class="text-center text-muted"
-                                    >
-                                        Chưa có nhận xét học tập nào.
-                                    </td>
-                                </tr>
-                            `
+                        ${comments.length === 0
+                            ? '<tr><td colspan="8" class="text-center text-muted">Chưa có nhận xét học tập nào.</td></tr>'
                             : comments.map((c, index) => {
-
-                                const student = APP_STATE.students.find(
-                                    s => s.db_uuid === c.studentId
-                                );
-
+                                const student = studentMap.get(c.studentId);
                                 return `
                                     <tr data-student-id="${c.studentId}">
-    <td>${index + 1}</td>
-
-                                        <td>
-                                            ${
-                                                student
-                                                    ? student.fullName
-                                                    : 'Không xác định'
-                                            }
-                                        </td>
-
-                                        <td>
-                                            ${
-                                                c.commentDatetime
-                                                    ? new Date(
-                                                        c.commentDatetime
-                                                      ).toLocaleString('vi-VN')
-                                                    : ''
-                                            }
-                                        </td>
-
-                                        <td>
-                                            ${c.subject || '—'}
-                                        </td>
-
-                                        <td>
-                                            ${c.commentType || '—'}
-                                        </td>
-
-                                        <td>
-                                            ${c.content || ''}
-                                        </td>
+                                        <td>${index + 1}</td>
+                                        <td>${getContextClassName(c.classId)}</td>
+                                        <td>${c.subject || '—'}</td>
+                                        <td>${student ? student.fullName : 'Không xác định'}</td>
+                                        <td>${c.commentDatetime ? new Date(c.commentDatetime).toLocaleString('vi-VN') : ''}</td>
+                                        <td>${c.commentType || '—'}</td>
+                                        <td>${c.content || ''}</td>
                                         <td class="text-center">
-    <div class="action-buttons">
-
-        <button
-            class="btn btn-info btn-sm"
-            title="Xem nhận xét"
-            onclick="viewLearningComment('${c.id}')"
-        >
-            <i class="fas fa-eye"></i>
-        </button>
-
-        <button
-            class="btn btn-warning btn-sm"
-            title="Sửa nhận xét"
-            onclick="editLearningComment('${c.id}')"
-        >
-            <i class="fas fa-edit"></i>
-        </button>
-
-        <button
-            class="btn btn-danger btn-sm"
-            title="Xóa nhận xét"
-            onclick="deleteLearningComment('${c.id}')"
-        >
-            <i class="fas fa-trash"></i>
-        </button>
-
-    </div>
-</td>
-                                    </tr>
-                                `;
-                            }).join('')
-                        }
+                                            <div class="action-buttons">
+                                                <button class="btn btn-info btn-sm" title="Xem nhận xét" onclick="viewLearningComment('${c.id}')"><i class="fas fa-eye"></i></button>
+                                                <button class="btn btn-warning btn-sm" title="Sửa nhận xét" onclick="editLearningComment('${c.id}')"><i class="fas fa-edit"></i></button>
+                                                <button class="btn btn-danger btn-sm" title="Xóa nhận xét" onclick="deleteLearningComment('${c.id}')"><i class="fas fa-trash"></i></button>
+                                            </div>
+                                        </td>
+                                    </tr>`;
+                            }).join('')}
                     </tbody>
                 </table>
             </div>
-        </div>
-    `;
+        </div>`;
 }
+
 window.filterLearningCommentsByStudent = function(studentUuid) {
-    const rows = document.querySelectorAll(
-        '#learningCommentsTableBody tr[data-student-id]'
-    );
-
-    rows.forEach(row => {
-        const rowStudentId = row.getAttribute('data-student-id');
-
-        if (!studentUuid || rowStudentId === studentUuid) {
-            row.style.display = '';
-        } else {
-            row.style.display = 'none';
-        }
+    document.querySelectorAll('#learningCommentsTableBody tr[data-student-id]').forEach(row => {
+        row.style.display = !studentUuid || row.getAttribute('data-student-id') === studentUuid ? '' : 'none';
     });
 };
+
 function openAddLearningComment() {
-    const learningCommentSubjects = [
-    ...new Set([
-        ...(APP_STATE.subjectCatalog?.length
-            ? APP_STATE.subjectCatalog.map(subject => subject.name)
-            : SUBJECTS),
-        'Tiếng Việt',
-        'Toán',
-        'Tin học',
-        'Công nghệ',
-        'Đạo đức',
-        'Tự nhiên và Xã hội',
-        'Khoa học',
-        'Lịch sử và Địa lí',
-        'Ngoại ngữ 1',
-        'Khác'
-    ])
-];
-    const studentOptions = APP_STATE.students
-        .map(s => `
-            <option value="${s.db_uuid}">
-                ${s.fullName}
-            </option>
-        `)
-        .join('');
+    if (!requireEditPermission('thêm nhận xét học tập')) return;
 
+    const classes = APP_STATE.classes || [];
     const now = new Date();
+    const localDate = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')].join('-');
+    const localTime = [String(now.getHours()).padStart(2, '0'), String(now.getMinutes()).padStart(2, '0')].join(':');
 
-    const localDate = [
-        now.getFullYear(),
-        String(now.getMonth() + 1).padStart(2, '0'),
-        String(now.getDate()).padStart(2, '0')
-    ].join('-');
+    const modalPromise = showModal('Thêm nhận xét học tập', `
+        <div class="form-group">
+            <label>Lớp *</label>
+            <select id="lcClassSelect"><option value="">-- Chọn lớp --</option>${classes.map(cls => `<option value="${cls.id}">${cls.name}</option>`).join('')}</select>
+        </div>
+        <div class="form-group">
+            <label>Môn học *</label>
+            <select id="lcSubjectSelect" disabled><option value="">-- Chọn môn --</option></select>
+        </div>
+        <div class="form-group">
+            <label>Chọn học sinh *</label>
+            <select id="lcStudentSelect" disabled><option value="">-- Chọn học sinh --</option></select>
+        </div>
+        <div class="form-grid">
+            <div class="form-group"><label>Ngày *</label><input type="date" id="lcCommentDate" value="${localDate}"></div>
+            <div class="form-group"><label>Thời gian *</label><input type="time" id="lcCommentTime" value="${localTime}"></div>
+        </div>
+        <div class="form-group">
+            <label>Diễn biến học tập *</label>
+            <select id="lcTypeSelect">
+                <option value="Tiến bộ">Tiến bộ</option><option value="Cần cố gắng">Cần cố gắng</option>
+                <option value="Học tập sa sút">Học tập sa sút</option><option value="Nhận xét khác">Nhận xét khác</option>
+            </select>
+        </div>
+        <div class="form-group"><label>Nội dung nhận xét *</label><textarea id="lcContent" rows="4" placeholder="Nhập nhận xét cụ thể về quá trình học tập của học sinh..."></textarea></div>
+        <div class="form-group"><label>Người nhận xét</label><input type="text" id="lcTeacherName" value="${APP_STATE.settings?.teacherName || APP_STATE.currentUserDisplayName || ''}"></div>
+    `, 'Thêm', 'Hủy');
 
-    const localTime = [
-        String(now.getHours()).padStart(2, '0'),
-        String(now.getMinutes()).padStart(2, '0')
-    ].join(':');
+    setupClassSubjectStudentSelectors({
+        classSelectId: 'lcClassSelect', subjectSelectId: 'lcSubjectSelect', studentSelectId: 'lcStudentSelect'
+    });
 
-    showModal(
-        'Thêm nhận xét học tập',
-        `
-            <div class="form-group">
-                <label>Chọn học sinh *</label>
-                <select id="lcStudentSelect">
-                    <option value="">-- Chọn học sinh --</option>
-                    ${studentOptions}
-                </select>
-            </div>
-
-            <div class="form-grid">
-
-                <div class="form-group">
-                    <label>Ngày *</label>
-                    <input
-                        type="date"
-                        id="lcCommentDate"
-                        value="${localDate}"
-                    >
-                </div>
-
-                <div class="form-group">
-                    <label>Thời gian *</label>
-                    <input
-                        type="time"
-                        id="lcCommentTime"
-                        value="${localTime}"
-                    >
-                </div>
-
-            </div>
-
-            <div class="form-group">
-                <label>Môn học</label>
-                <select id="lcSubjectSelect">
-    <option value="">-- Chọn môn --</option>
-    ${learningCommentSubjects.map(subject => `
-        <option value="${subject}">${subject}</option>
-    `).join('')}
-</select>
-            </div>
-
-            <div class="form-group">
-                <label>Diễn biến học tập *</label>
-                <select id="lcTypeSelect">
-                    <option value="Tiến bộ">Tiến bộ</option>
-                    <option value="Cần cố gắng">Cần cố gắng</option>
-                    <option value="Học tập sa sút">Học tập sa sút</option>
-                    <option value="Nhận xét khác">Nhận xét khác</option>
-                </select>
-            </div>
-
-            <div class="form-group">
-                <label>Nội dung nhận xét *</label>
-                <textarea
-                    id="lcContent"
-                    rows="4"
-                    placeholder="Nhập nhận xét cụ thể về quá trình học tập của học sinh..."
-                ></textarea>
-            </div>
-
-            <div class="form-group">
-                <label>Người nhận xét</label>
-                <input
-                    type="text"
-                    id="lcTeacherName"
-                    value="${
-                        APP_STATE.settings?.teacherName ||
-                        'Võ Thanh Đậm'
-                    }"
-                >
-            </div>
-        `,
-        'Thêm',
-        'Hủy'
-    ).then(async confirmed => {
-
+    modalPromise.then(async confirmed => {
         if (!confirmed) return;
+        const classId = document.getElementById('lcClassSelect')?.value;
+        const subjectId = document.getElementById('lcSubjectSelect')?.value;
+        const studentUuid = document.getElementById('lcStudentSelect')?.value;
+        const date = document.getElementById('lcCommentDate')?.value;
+        const time = document.getElementById('lcCommentTime')?.value;
+        const type = document.getElementById('lcTypeSelect')?.value;
+        const content = document.getElementById('lcContent')?.value.trim();
+        const teacherName = document.getElementById('lcTeacherName')?.value.trim();
+        const subjectObj = (APP_STATE.subjectCatalog || []).find(subject => subject.id === subjectId);
+        const selectedStudent = APP_STATE.students.find(student => student.db_uuid === studentUuid);
 
-        const studentUuid =
-            document.getElementById('lcStudentSelect')?.value;
-
-        const date =
-            document.getElementById('lcCommentDate')?.value;
-
-        const time =
-            document.getElementById('lcCommentTime')?.value;
-
-        const subject =
-            document.getElementById('lcSubjectSelect')?.value;
-
-        const type =
-            document.getElementById('lcTypeSelect')?.value;
-
-        const content =
-            document.getElementById('lcContent')?.value.trim();
-
-        const teacherName =
-            document.getElementById('lcTeacherName')?.value.trim();
-
-        if (!studentUuid || !date || !time || !content) {
-            showToast(
-                'Vui lòng nhập đầy đủ các thông tin bắt buộc!',
-                'error'
-            );
+        if (!classId || !subjectId || !studentUuid || !date || !time || !content || !subjectObj || !selectedStudent) {
+            showToast('Vui lòng chọn đầy đủ Lớp, Môn, Học sinh và nhập các thông tin bắt buộc!', 'error');
+            return;
+        }
+        if (selectedStudent.class_id !== classId) {
+            showToast('Học sinh không thuộc lớp đã chọn.', 'error');
             return;
         }
 
         try {
-
-            const selectedStudent = APP_STATE.students.find(
-                s => s.db_uuid === studentUuid
-            );
-
-            if (!selectedStudent) {
-                throw new Error('Không tìm thấy học sinh đã chọn.');
-            }
-
-            const commentDatetime = `${date}T${time}:00`;
-
-            const newComment = {
+            const { data, error } = await supabase.from('app3_learning_comments').insert([{
                 student_id: studentUuid,
-                class_id: selectedStudent.class_id || null,
-                comment_datetime: commentDatetime,
-                subject: subject || null,
+                class_id: classId,
+                subject_id: subjectId,
+                comment_datetime: `${date}T${time}:00`,
+                subject: subjectObj.name,
                 comment_type: type,
-                content: content,
+                content,
                 teacher_name: teacherName || null
-            };
-
-            console.log(
-                'Đang lưu nhận xét học tập:',
-                newComment
-            );
-
-            const { data, error } = await supabase
-                .from('app3_learning_comments')
-                .insert([newComment])
-                .select()
-                .single();
-
-            if (error) {
-                throw error;
-            }
-
-            if (!data) {
-                throw new Error(
-                    'Supabase không trả về dữ liệu nhận xét vừa tạo.'
-                );
-            }
-
+            }]).select().single();
+            if (error) throw error;
             APP_STATE.learningComments.unshift({
-                id: data.id,
-                studentId: data.student_id,
-                classId: data.class_id,
-                commentDatetime: data.comment_datetime,
-                subject: data.subject,
-                commentType: data.comment_type,
-                content: data.content,
-                teacherName: data.teacher_name,
-                createdAt: data.created_at,
-                updatedAt: data.updated_at
+                id: data.id, studentId: data.student_id, classId: data.class_id, subjectId: data.subject_id,
+                commentDatetime: data.comment_datetime, subject: data.subject, commentType: data.comment_type,
+                content: data.content, teacherName: data.teacher_name, createdAt: data.created_at, updatedAt: data.updated_at
             });
-
-            showToast(
-                'Thêm nhận xét học tập thành công!',
-                'success'
-            );
-
+            showToast('Thêm nhận xét học tập thành công!', 'success');
             renderPage('learning-comments');
-
         } catch (err) {
-
-            console.error(
-                'Lỗi thêm nhận xét học tập:',
-                err
-            );
-
-            showToast(
-                'Lỗi thêm nhận xét: ' + (
-                    err?.message || 'Không xác định'
-                ),
-                'error'
-            );
+            console.error('Lỗi thêm nhận xét học tập:', err);
+            showToast('Lỗi thêm nhận xét: ' + (err?.message || 'Không xác định'), 'error');
         }
     });
 }
+
 window.viewLearningComment = function(commentId) {
 
     const comment = (APP_STATE.learningComments || [])
@@ -1802,310 +2041,108 @@ window.viewLearningComment = function(commentId) {
     );
 };
 window.editLearningComment = function(commentId) {
-
-    const comment = (APP_STATE.learningComments || [])
-        .find(c => String(c.id) === String(commentId));
-
+    if (!requireEditPermission('sửa nhận xét học tập')) return;
+    const comment = (APP_STATE.learningComments || []).find(c => String(c.id) === String(commentId));
     if (!comment) {
-        showToast(
-            'Không tìm thấy nhận xét cần sửa.',
-            'error'
-        );
+        showToast('Không tìm thấy nhận xét cần sửa.', 'error');
         return;
     }
 
-    const studentOptions = APP_STATE.students
-        .map(s => `
-            <option
-                value="${s.db_uuid}"
-                ${s.db_uuid === comment.studentId ? 'selected' : ''}
-            >
-                ${s.fullName}
-            </option>
-        `)
-        .join('');
-
     let dateValue = '';
     let timeValue = '';
-
     if (comment.commentDatetime) {
-
         const date = new Date(comment.commentDatetime);
-
         if (!isNaN(date.getTime())) {
-
-            dateValue = [
-                date.getFullYear(),
-                String(date.getMonth() + 1).padStart(2, '0'),
-                String(date.getDate()).padStart(2, '0')
-            ].join('-');
-
-            timeValue = [
-                String(date.getHours()).padStart(2, '0'),
-                String(date.getMinutes()).padStart(2, '0')
-            ].join(':');
+            dateValue = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+            timeValue = [String(date.getHours()).padStart(2, '0'), String(date.getMinutes()).padStart(2, '0')].join(':');
         }
     }
-const learningCommentSubjects = [
-    ...new Set([
-        ...(APP_STATE.subjectCatalog?.length
-            ? APP_STATE.subjectCatalog.map(subject => subject.name)
-            : SUBJECTS),
-        'Tiếng Việt',
-        'Toán',
-        'Tin học',
-        'Công nghệ',
-        'Đạo đức',
-        'Tự nhiên và Xã hội',
-        'Khoa học',
-        'Lịch sử và Địa lí',
-        'Ngoại ngữ 1',
-        'Khác'
-    ])
-];
-    showModal(
-        'Sửa nhận xét học tập',
-        `
-            <div class="form-group">
-                <label>Chọn học sinh *</label>
 
-                <select id="lcStudentSelect">
-                    <option value="">
-                        -- Chọn học sinh --
-                    </option>
+    const classes = APP_STATE.classes || [];
+    const modalPromise = showModal('Sửa nhận xét học tập', `
+        <div class="form-group">
+            <label>Lớp *</label>
+            <select id="lcClassSelect"><option value="">-- Chọn lớp --</option>${classes.map(cls => `<option value="${cls.id}">${cls.name}</option>`).join('')}</select>
+        </div>
+        <div class="form-group"><label>Môn học *</label><select id="lcSubjectSelect" disabled><option value="">-- Chọn môn --</option></select></div>
+        <div class="form-group"><label>Chọn học sinh *</label><select id="lcStudentSelect" disabled><option value="">-- Chọn học sinh --</option></select></div>
+        <div class="form-grid">
+            <div class="form-group"><label>Ngày *</label><input type="date" id="lcCommentDate" value="${dateValue}"></div>
+            <div class="form-group"><label>Thời gian *</label><input type="time" id="lcCommentTime" value="${timeValue}"></div>
+        </div>
+        <div class="form-group">
+            <label>Diễn biến học tập *</label>
+            <select id="lcTypeSelect">
+                <option value="Tiến bộ" ${comment.commentType === 'Tiến bộ' ? 'selected' : ''}>Tiến bộ</option>
+                <option value="Cần cố gắng" ${comment.commentType === 'Cần cố gắng' ? 'selected' : ''}>Cần cố gắng</option>
+                <option value="Học tập sa sút" ${comment.commentType === 'Học tập sa sút' ? 'selected' : ''}>Học tập sa sút</option>
+                <option value="Nhận xét khác" ${comment.commentType === 'Nhận xét khác' ? 'selected' : ''}>Nhận xét khác</option>
+            </select>
+        </div>
+        <div class="form-group"><label>Nội dung nhận xét *</label><textarea id="lcContent" rows="4">${comment.content || ''}</textarea></div>
+        <div class="form-group"><label>Người nhận xét</label><input type="text" id="lcTeacherName" value="${comment.teacherName || ''}"></div>
+    `, 'Cập nhật', 'Hủy');
 
-                    ${studentOptions}
-                </select>
-            </div>
+    setupClassSubjectStudentSelectors({
+        classSelectId: 'lcClassSelect', subjectSelectId: 'lcSubjectSelect', studentSelectId: 'lcStudentSelect',
+        initialClassId: comment.classId || '', initialSubjectId: comment.subjectId || getSubjectId(comment.subject),
+        initialStudentUuid: comment.studentId || ''
+    });
 
-            <div class="form-grid">
-
-                <div class="form-group">
-                    <label>Ngày *</label>
-
-                    <input
-                        type="date"
-                        id="lcCommentDate"
-                        value="${dateValue}"
-                    >
-                </div>
-
-                <div class="form-group">
-                    <label>Thời gian *</label>
-
-                    <input
-                        type="time"
-                        id="lcCommentTime"
-                        value="${timeValue}"
-                    >
-                </div>
-
-            </div>
-
-                        <div class="form-group">
-                <label>Môn học</label>
-
-                <select id="lcSubjectSelect">
-                    <option value="">-- Chọn môn --</option>
-
-                    ${learningCommentSubjects.map(subject => `
-                        <option value="${subject}"
-                            ${comment.subject === subject ? 'selected' : ''}>
-                            ${subject}
-                        </option>
-                    `).join('')}
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Diễn biến học tập *</label>
-
-                <select id="lcTypeSelect">
-
-                    <option value="Tiến bộ"
-                        ${comment.commentType === 'Tiến bộ' ? 'selected' : ''}>
-                        Tiến bộ
-                    </option>
-
-                    <option value="Cần cố gắng"
-                        ${comment.commentType === 'Cần cố gắng' ? 'selected' : ''}>
-                        Cần cố gắng
-                    </option>
-
-                    <option value="Học tập sa sút"
-                        ${comment.commentType === 'Học tập sa sút' ? 'selected' : ''}>
-                        Học tập sa sút
-                    </option>
-
-                    <option value="Nhận xét khác"
-                        ${comment.commentType === 'Nhận xét khác' ? 'selected' : ''}>
-                        Nhận xét khác
-                    </option>
-
-                </select>
-            </div>
-
-            <div class="form-group">
-                <label>Nội dung nhận xét *</label>
-
-                <textarea
-                    id="lcContent"
-                    rows="4"
-                    placeholder="Nhập nhận xét cụ thể về quá trình học tập của học sinh..."
-                >${comment.content || ''}</textarea>
-            </div>
-
-            <div class="form-group">
-                <label>Người nhận xét</label>
-
-                <input
-                    type="text"
-                    id="lcTeacherName"
-                    value="${comment.teacherName || ''}"
-                >
-            </div>
-        `,
-        'Cập nhật',
-        'Hủy'
-    ).then(async confirmed => {
-
+    modalPromise.then(async confirmed => {
         if (!confirmed) return;
+        const classId = document.getElementById('lcClassSelect')?.value;
+        const subjectId = document.getElementById('lcSubjectSelect')?.value;
+        const studentUuid = document.getElementById('lcStudentSelect')?.value;
+        const date = document.getElementById('lcCommentDate')?.value;
+        const time = document.getElementById('lcCommentTime')?.value;
+        const type = document.getElementById('lcTypeSelect')?.value;
+        const content = document.getElementById('lcContent')?.value.trim();
+        const teacherName = document.getElementById('lcTeacherName')?.value.trim();
+        const subjectObj = (APP_STATE.subjectCatalog || []).find(subject => subject.id === subjectId);
+        const selectedStudent = APP_STATE.students.find(student => student.db_uuid === studentUuid);
 
-        const studentUuid =
-            document.getElementById('lcStudentSelect')?.value;
-
-        const date =
-            document.getElementById('lcCommentDate')?.value;
-
-        const time =
-            document.getElementById('lcCommentTime')?.value;
-
-        const subject =
-            document.getElementById('lcSubjectSelect')?.value;
-
-        const type =
-            document.getElementById('lcTypeSelect')?.value;
-
-        const content =
-            document.getElementById('lcContent')?.value.trim();
-
-        const teacherName =
-            document.getElementById('lcTeacherName')?.value.trim();
-
-        if (!studentUuid || !date || !time || !content) {
-
-            showToast(
-                'Vui lòng nhập đầy đủ các thông tin bắt buộc!',
-                'error'
-            );
-
+        if (!classId || !subjectId || !studentUuid || !date || !time || !content || !subjectObj || !selectedStudent) {
+            showToast('Vui lòng chọn đầy đủ Lớp, Môn, Học sinh và nhập các thông tin bắt buộc!', 'error');
+            return;
+        }
+        if (selectedStudent.class_id !== classId) {
+            showToast('Học sinh không thuộc lớp đã chọn.', 'error');
             return;
         }
 
         try {
-
-            const selectedStudent =
-                APP_STATE.students.find(
-                    s => s.db_uuid === studentUuid
-                );
-
-            if (!selectedStudent) {
-                throw new Error(
-                    'Không tìm thấy học sinh đã chọn.'
-                );
-            }
-
-            const commentDatetime =
-                `${date}T${time}:00`;
-
-            const updatedData = {
-
+            const { data, error } = await supabase.from('app3_learning_comments').update({
                 student_id: studentUuid,
-
-                class_id:
-                    selectedStudent.class_id || null,
-
-                comment_datetime:
-                    commentDatetime,
-
-                subject:
-                    subject || null,
-
-                comment_type:
-                    type,
-
-                content:
-                    content,
-
-                teacher_name:
-                    teacherName || null,
-
-                updated_at:
-                    new Date().toISOString()
-            };
-
-            const { data, error } = await supabase
-                .from('app3_learning_comments')
-                .update(updatedData)
-                .eq('id', commentId)
-                .select()
-                .single();
-
-            if (error) {
-                throw error;
-            }
-
-            if (!data) {
-                throw new Error(
-                    'Supabase không trả về dữ liệu sau khi cập nhật.'
-                );
-            }
-
-            const index =
-                APP_STATE.learningComments.findIndex(
-                    c => String(c.id) === String(commentId)
-                );
-
+                class_id: classId,
+                subject_id: subjectId,
+                comment_datetime: `${date}T${time}:00`,
+                subject: subjectObj.name,
+                comment_type: type,
+                content,
+                teacher_name: teacherName || null,
+                updated_at: new Date().toISOString()
+            }).eq('id', commentId).select().single();
+            if (error) throw error;
+            const index = APP_STATE.learningComments.findIndex(c => String(c.id) === String(commentId));
             if (index !== -1) {
-
                 APP_STATE.learningComments[index] = {
-
-                    id: data.id,
-                    studentId: data.student_id,
-                    classId: data.class_id,
-                    commentDatetime: data.comment_datetime,
-                    subject: data.subject,
-                    commentType: data.comment_type,
-                    content: data.content,
-                    teacherName: data.teacher_name,
-                    createdAt: data.created_at,
-                    updatedAt: data.updated_at
-
+                    id: data.id, studentId: data.student_id, classId: data.class_id, subjectId: data.subject_id,
+                    commentDatetime: data.comment_datetime, subject: data.subject, commentType: data.comment_type,
+                    content: data.content, teacherName: data.teacher_name, createdAt: data.created_at, updatedAt: data.updated_at
                 };
             }
-
-            showToast(
-                'Cập nhật nhận xét học tập thành công!',
-                'success'
-            );
-
+            showToast('Cập nhật nhận xét học tập thành công!', 'success');
             renderPage('learning-comments');
-
         } catch (err) {
-
-            console.error(
-                'Lỗi cập nhật nhận xét học tập:',
-                err
-            );
-
-            showToast(
-                'Lỗi cập nhật nhận xét: ' +
-                (err?.message || 'Không xác định'),
-                'error'
-            );
+            console.error('Lỗi cập nhật nhận xét học tập:', err);
+            showToast('Lỗi cập nhật nhận xét: ' + (err?.message || 'Không xác định'), 'error');
         }
     });
 };
+
 window.deleteLearningComment = async function(commentId) {
+    if (!requireEditPermission('xóa nhận xét học tập')) return;
 
     const comment =
         (APP_STATE.learningComments || [])
@@ -2200,6 +2237,10 @@ function renderPage(page) {
         if (page === 'search') initSearch();
         if (page === 'statistics') initStatCharts();
         if (page === 'wheel') initWheel();
+        applyViewerReadOnlyUI();
+        if (isViewer() && page === 'attendance') {
+            setTimeout(applyViewerReadOnlyUI, 120);
+        }
     }, 50);
 }
 
@@ -2308,14 +2349,12 @@ function renderStudents() {
     APP_STATE.subjectCatalog?.[0]?.name ||
     SUBJECTS[0];
 
-const studentSubjectNames =
-    APP_STATE.subjectCatalog?.length
-        ? APP_STATE.subjectCatalog.map(subject => subject.name)
-        : SUBJECTS;
+const studentSubjectNames = getVisibleSubjectNames();
 
 const studentSubjectOptions = studentSubjectNames
     .map(subject => `<option value="${subject}" ${subject === studentSubject ? 'selected' : ''}>${subject}</option>`)
     .join('');
+const studentAccessibleClasses = getAccessibleClassesForSubject(studentSubject);
     return `
         <div class="card">
             <div class="flex-between mb-2">
@@ -2349,7 +2388,7 @@ const studentSubjectOptions = studentSubjectNames
         style="padding:0.3rem 0.6rem;"
     >
         <option value="">Tất cả lớp</option>
-        ${APP_STATE.classes.map(c => `
+        ${studentAccessibleClasses.map(c => `
             <option value="${c.name}">${c.name}</option>
         `).join('')}
     </select>
@@ -2360,12 +2399,14 @@ const studentSubjectOptions = studentSubjectNames
                     <button class="btn btn-secondary btn-sm" onclick="downloadSampleExcel()"><i class="fas fa-file-excel"></i> Tải mẫu</button>
                     <button class="btn btn-secondary btn-sm" onclick="document.getElementById('importFileInput').click()"><i class="fas fa-upload"></i> Import Excel</button>
                     <input type="file" id="importFileInput" accept=".xlsx,.xls" style="display:none" onchange="importExcel(event)">
+                    <button class="btn btn-info btn-sm" onclick="document.getElementById('vneduStudentImportInput').click()"><i class="fas fa-school"></i> Nhập DS mẫu VNEDU</button>
+                    <input type="file" id="vneduStudentImportInput" accept=".xlsx,.xls" style="display:none" onchange="importVnEduStudentWorkbook(event)">
                     <button class="btn btn-secondary btn-sm" onclick="printStudents()"><i class="fas fa-print"></i> In</button>
                 </div>
             </div>
             <div class="search-bar">
                 <input type="text" id="studentSearch" placeholder="Tìm theo tên, mã HS..." oninput="filterStudents()">
-                <select id="filterClass" onchange="filterStudents()"><option value="">Tất cả lớp</option>${APP_STATE.classes.map(c => `<option value="${c.name}">${c.name}</option>`).join('')}</select>
+                <select id="filterClass" onchange="filterStudents()"><option value="">Tất cả lớp</option>${studentAccessibleClasses.map(c => `<option value="${c.name}">${c.name}</option>`).join('')}</select>
                 <select id="filterGrade" onchange="filterStudents()"><option value="">Tất cả khối</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select>
                 <select id="filterGender" onchange="filterStudents()"><option value="">Giới tính</option><option value="Nam">Nam</option><option value="Nữ">Nữ</option></select>
                 <button class="btn btn-secondary btn-sm" onclick="resetFilters()"><i class="fas fa-undo"></i> Reset</button>
@@ -2403,10 +2444,14 @@ function switchStudentSubject(subject) {
 
     APP_STATE.studentSubject = subject;
     studentPage = 1;
-    initStudentTable();
+    renderPage('students');
 }
 function getFilteredStudents() {
     let list = [...APP_STATE.students];
+    if (hasAssignedScope()) {
+        const allowedClassIds = getAssignedClassIds(APP_STATE.studentSubject);
+        list = list.filter(student => allowedClassIds.has(student.class_id));
+    }
     const k = document.getElementById('studentSearch')?.value?.toLowerCase() || '';
     if (k) list = list.filter(s => s.fullName.toLowerCase().includes(k) || s.id.toLowerCase().includes(k));
     const cls = document.getElementById('filterClass')?.value || '';
@@ -2684,6 +2729,7 @@ function getStudentFormData() {
 }
 
 async function addStudentToSupabase(data, avatarFile) {
+    if (!requireEditPermission('thêm học sinh')) return null;
     const classObj = APP_STATE.classes.find(c => c.name === data.class);
     const classId = classObj ? classObj.id : null;
 
@@ -2801,6 +2847,7 @@ studentSubjects.forEach(sub => {
 }
 
 function openAddStudent() {
+    if (!requireEditPermission('thêm học sinh')) return;
     showModal('Thêm học sinh', getStudentFormHTML(null, true), 'Thêm', 'Hủy').then(async confirmed => {
         if (confirmed) {
             const data = getStudentFormData();
@@ -2823,6 +2870,7 @@ function openAddStudent() {
 }
 
 async function updateStudentInSupabase(id, data, avatarFile) {
+    if (!requireEditPermission('sửa học sinh')) return;
     const existing = APP_STATE.students.find(s => s.id === id);
     if (!existing) throw new Error('Không tìm thấy học sinh');
 
@@ -2933,6 +2981,7 @@ APP_STATE.scores[id][subject].quality = data.quality;
 }
 
 function editStudent(id) {
+    if (!requireEditPermission('sửa học sinh')) return;
     const student = APP_STATE.students.find(s => s.id === id);
     if (!student) return;
 
@@ -3167,6 +3216,7 @@ function downloadAvatar(studentId) {
 }
 
 async function deleteStudent(id) {
+    if (!requireEditPermission('xóa học sinh')) return;
     const student = APP_STATE.students.find(s => s.id === id);
     if (!student) return;
     const confirmed = await showModal('Xóa học sinh', `Bạn có chắc muốn xóa học sinh <strong>${student.fullName}</strong>?`, 'Xóa', 'Hủy');
@@ -3191,6 +3241,7 @@ async function deleteStudent(id) {
 }
 
 async function deleteSelectedStudents() {
+    if (!requireEditPermission('xóa học sinh')) return;
     if (APP_STATE.selectedStudents.length === 0) {
         showToast('Vui lòng chọn ít nhất một học sinh.', 'warning');
         return;
@@ -3373,6 +3424,7 @@ function downloadSampleExcel() {
 }
 
 function importExcel(event) {
+    if (!requireEditPermission('import học sinh')) { if (event?.target) event.target.value = ''; return; }
     const file = event.target.files[0];
     if (!file) return;
     const reader = new FileReader();
@@ -3568,9 +3620,7 @@ function importExcel(event) {
         APP_STATE.scores[newStudent.id] = {};
 
         const importedStudentSubjects =
-            APP_STATE.subjectCatalog?.length
-                ? APP_STATE.subjectCatalog.map(subject => subject.name)
-                : SUBJECTS;
+            getVisibleSubjectNames();
 
         importedStudentSubjects.forEach(sub => {
             APP_STATE.scores[newStudent.id][sub] = {
@@ -3685,6 +3735,7 @@ function initClassTable() {
 }
 
 function openAddClass() {
+    if (!requireEditPermission('thêm lớp')) return;
     showModal('Thêm lớp', `
         <div class="form-grid">
             <div class="form-group"><label>Tên lớp *</label><input type="text" id="cfName" placeholder="5B1"></div>
@@ -3725,6 +3776,7 @@ function openAddClass() {
 }
 
 function editClass(id) {
+    if (!requireEditPermission('sửa lớp')) return;
     const c = APP_STATE.classes.find(cls => cls.id === id);
     if (!c) return;
     showModal('Sửa lớp', `
@@ -3767,6 +3819,7 @@ function editClass(id) {
 }
 
 async function deleteClass(id) {
+    if (!requireEditPermission('xóa lớp')) return;
     const c = APP_STATE.classes.find(cls => cls.id === id);
     if (!c) return;
     const confirmed = await showModal('Xóa lớp', `Bạn có chắc muốn xóa lớp <strong>${c.name}</strong>?`, 'Xóa', 'Hủy');
@@ -3792,11 +3845,9 @@ async function deleteClass(id) {
 // 10. QUẢN LÝ ĐIỂM (CÓ CỘT NĂNG LỰC & PHẨM CHẤT)
 // ============================================================
 function renderScores() {
-    const classOptions = APP_STATE.classes.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
-    const scoreSubjectNames =
-    APP_STATE.subjectCatalog?.length
-        ? APP_STATE.subjectCatalog.map(subject => subject.name)
-        : SUBJECTS;
+    const scoreAccessibleClasses = getAccessibleClassesForSubject(APP_STATE.currentSubject);
+    const classOptions = scoreAccessibleClasses.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+    const scoreSubjectNames = getVisibleSubjectNames();
 
 const subjectOptions = scoreSubjectNames
     .map(sub => `<option value="${sub}" ${sub === APP_STATE.currentSubject ? 'selected' : ''}>${sub}</option>`)
@@ -3818,6 +3869,19 @@ const subjectOptions = scoreSubjectNames
                         ${classOptions}
                     </select>
                     <button class="btn btn-success btn-sm" onclick="exportScoreClass()"><i class="fas fa-file-excel"></i> Xuất điểm</button>
+                    <button class="btn btn-secondary btn-sm" onclick="downloadScoreImportTemplate()"><i class="fas fa-download"></i> Mẫu nhập điểm</button>
+                    <button class="btn btn-primary btn-sm" onclick="document.getElementById('scoreImportInput').click()"><i class="fas fa-file-import"></i> Nhập điểm Excel</button>
+                    <input type="file" id="scoreImportInput" accept=".xlsx,.xls" style="display:none" onchange="importScoresExcel(event)">
+                    <select id="vneduPeriod" onchange="initScoreTable()" style="padding:0.3rem 0.6rem;border:1px solid var(--border);border-radius:4px;">
+                        <option value="gk1">VNEDU - Giữa kỳ 1</option><option value="ck1">VNEDU - Cuối kỳ 1</option>
+                        <option value="gk2">VNEDU - Giữa kỳ 2</option><option value="ck2">VNEDU - Cuối kỳ 2</option>
+                    </select>
+                    <button class="btn btn-success btn-sm" onclick="exportVnEduScores()"><i class="fas fa-file-export"></i> Xuất VNEDU lớp</button>
+                    <button class="btn btn-info btn-sm" onclick="document.getElementById('vneduScoreImportInput').click()"><i class="fas fa-file-import"></i> Nhập VNEDU lớp</button>
+                    <input type="file" id="vneduScoreImportInput" accept=".xlsx,.xls" style="display:none" onchange="importVnEduScoresExcel(event)">
+                    <button class="btn btn-success btn-sm" onclick="exportVnEduTeachingWorkbook()"><i class="fas fa-file-excel"></i> Xuất các môn tôi dạy</button>
+                    <button class="btn btn-info btn-sm" onclick="document.getElementById('vneduTeachingImportInput').click()"><i class="fas fa-file-import"></i> Nhập các môn tôi dạy</button>
+                    <input type="file" id="vneduTeachingImportInput" accept=".xlsx,.xls" style="display:none" onchange="importVnEduTeachingWorkbook(event)">
                 </div>
             </div>
             <p class="text-muted mb-2">Nhập điểm cho môn <strong>${APP_STATE.currentSubject}</strong> theo Thông tư 27.</p>
@@ -3827,14 +3891,7 @@ const subjectOptions = scoreSubjectNames
             </div>
             <div class="table-wrapper">
                 <table>
-                    <thead><tr>
-                        <th>STT</th><th>Mã HS</th><th>Họ tên</th><th>Lớp</th>
-                        <th>Giữa kỳ 1</th><th>Cuối kỳ 1</th>
-                        <th>Giữa kỳ 2</th><th>Cuối kỳ 2</th>
-                        <th>Năng lực</th>
-                        <th>Phẩm chất</th>
-                        <th>Thao tác</th>
-                    </tr></thead>
+                    <thead><tr id="scoreTableHead"></tr></thead>
                     <tbody id="scoreTableBody"></tbody>
                 </table>
             </div>
@@ -3856,64 +3913,119 @@ function switchSubject(subject) {
 
 function initScoreTable() {
     const tbody = document.getElementById('scoreTableBody');
-    if (!tbody) return;
+    const thead = document.getElementById('scoreTableHead');
+    if (!tbody || !thead) return;
+
     let list = APP_STATE.students;
+    if (hasAssignedScope()) {
+        const allowedClassIds = getAssignedClassIds(APP_STATE.currentSubject);
+        list = list.filter(student => allowedClassIds.has(student.class_id));
+    }
+
     const kw = document.getElementById('scoreSearch')?.value?.toLowerCase() || '';
     if (kw) list = list.filter(s => s.fullName.toLowerCase().includes(kw) || s.id.toLowerCase().includes(kw));
     const cls = document.getElementById('scoreClass')?.value || '';
     if (cls) list = list.filter(s => s.class === cls);
+
     const subject = APP_STATE.currentSubject;
+    const period = document.getElementById('vneduPeriod')?.value || 'gk1';
     const gkOptions = ['', 'Hoàn thành tốt', 'Hoàn thành', 'Chưa hoàn thành'];
-    const compOptions = ['', 'Tốt', 'Đạt', 'Cần cố gắng'];
+
+    const periodConfig = {
+        gk1: {
+            label: 'Giữa kỳ 1',
+            commentField: 'nhanXetGk1',
+            columns: ['rating']
+        },
+        ck1: {
+            label: 'Cuối kỳ 1',
+            commentField: 'nhanXetCk1',
+            columns: ['score', 'rating']
+        },
+        gk2: {
+            label: 'Giữa kỳ 2',
+            commentField: 'nhanXetGk2',
+            columns: ['rating']
+        },
+        ck2: {
+            label: 'Cuối kỳ 2',
+            commentField: 'nhanXetCk2',
+            columns: ['score', 'rating', 'retestScore', 'retestRating']
+        }
+    };
+    const cfg = periodConfig[period] || periodConfig.gk1;
+
+    const dynamicHeaders = [];
+    if (cfg.columns.includes('score')) dynamicHeaders.push(`<th>Điểm ${cfg.label}</th>`);
+    if (cfg.columns.includes('rating')) dynamicHeaders.push(`<th>Xếp loại ${cfg.label}</th>`);
+    if (cfg.columns.includes('retestScore')) dynamicHeaders.push('<th>Điểm sau thi lại</th>');
+    if (cfg.columns.includes('retestRating')) dynamicHeaders.push('<th>Xếp loại sau thi lại</th>');
+
+    thead.innerHTML = `
+        <th>STT</th>
+        <th>Mã HS</th>
+        <th>Họ tên</th>
+        <th>Lớp</th>
+        ${dynamicHeaders.join('')}
+        <th>Nhận xét VNEDU</th>
+        <th>Thao tác</th>
+    `;
 
     tbody.innerHTML = list.map((s, idx) => {
         const studentScores = APP_STATE.scores[s.id] || {};
         const sc = studentScores[subject] || {
-    giuaKy1: '',
-    cuoiKy1: null,
-    giuaKy2: '',
-    cuoiKy2: null,
-    competence: '',
-    quality: ''
-};
-        const comp = sc.competence || '';
-        const qual = sc.quality || '';
-        const gk1Opts = gkOptions.map(opt => `<option value="${opt}" ${opt === sc.giuaKy1 ? 'selected' : ''}>${opt || ''}</option>`).join('');
-        const gk2Opts = gkOptions.map(opt => `<option value="${opt}" ${opt === sc.giuaKy2 ? 'selected' : ''}>${opt || ''}</option>`).join('');
-        const ck1Val = (sc.cuoiKy1 !== null && sc.cuoiKy1 !== undefined) ? sc.cuoiKy1 : '';
-        const ck2Val = (sc.cuoiKy2 !== null && sc.cuoiKy2 !== undefined) ? sc.cuoiKy2 : '';
-        const compOpts = compOptions.map(opt => `<option value="${opt}" ${opt === comp ? 'selected' : ''}>${opt || ''}</option>`).join('');
-        const qualOpts = compOptions.map(opt => `<option value="${opt}" ${opt === qual ? 'selected' : ''}>${opt || ''}</option>`).join('');
+            giuaKy1: '', cuoiKy1: null, xepLoaiCuoiKy1: '',
+            giuaKy2: '', cuoiKy2: null, xepLoaiCuoiKy2: '',
+            cuoiKy2SauThiLai: null, xepLoaiCuoiKy2SauThiLai: '',
+            competence: '', quality: '',
+            nhanXetGk1: '', nhanXetCk1: '', nhanXetGk2: '', nhanXetCk2: ''
+        };
+
+        const ratingOptions = (value) => gkOptions
+            .map(opt => `<option value="${opt}" ${opt === value ? 'selected' : ''}>${opt || ''}</option>`)
+            .join('');
+        const numberInput = (field, value, label) => `
+            <td>
+                <input type="number" min="0" max="10" step="0.5"
+                    aria-label="${label}"
+                    value="${value !== null && value !== undefined ? value : ''}"
+                    style="width:76px;"
+                    onchange="updateScore('${s.id}','${field}',this.value)">
+            </td>`;
+        const ratingSelect = (field, value, label) => `
+            <td>
+                <select aria-label="${label}" style="width:150px;"
+                    onchange="updateScore('${s.id}','${field}',this.value)">
+                    ${ratingOptions(value || '')}
+                </select>
+            </td>`;
+
+        let periodCells = '';
+        if (period === 'gk1') {
+            periodCells += ratingSelect('giuaKy1', sc.giuaKy1, 'Xếp loại Giữa kỳ 1');
+        } else if (period === 'ck1') {
+            periodCells += numberInput('cuoiKy1', sc.cuoiKy1, 'Điểm Cuối kỳ 1');
+            periodCells += ratingSelect('xepLoaiCuoiKy1', sc.xepLoaiCuoiKy1, 'Xếp loại Cuối kỳ 1');
+        } else if (period === 'gk2') {
+            periodCells += ratingSelect('giuaKy2', sc.giuaKy2, 'Xếp loại Giữa kỳ 2');
+        } else if (period === 'ck2') {
+            periodCells += numberInput('cuoiKy2', sc.cuoiKy2, 'Điểm Cuối kỳ 2');
+            periodCells += ratingSelect('xepLoaiCuoiKy2', sc.xepLoaiCuoiKy2, 'Xếp loại Cuối kỳ 2');
+            periodCells += numberInput('cuoiKy2SauThiLai', sc.cuoiKy2SauThiLai, 'Điểm sau thi lại');
+            periodCells += ratingSelect('xepLoaiCuoiKy2SauThiLai', sc.xepLoaiCuoiKy2SauThiLai, 'Xếp loại sau thi lại');
+        }
+
+        const commentValue = escapeHtmlAttr(sc[cfg.commentField] || '');
         return `<tr>
             <td>${idx + 1}</td>
             <td>${s.id}</td>
             <td>${s.fullName}</td>
             <td>${s.class}</td>
+            ${periodCells}
             <td>
-                <select style="width:140px;" onchange="updateScore('${s.id}','giuaKy1',this.value)">
-                    ${gk1Opts}
-                </select>
-            </td>
-            <td>
-                <input type="number" min="0" max="10" step="0.5" value="${ck1Val}" style="width:70px;" onchange="updateScore('${s.id}','cuoiKy1',this.value)">
-            </td>
-            <td>
-                <select style="width:140px;" onchange="updateScore('${s.id}','giuaKy2',this.value)">
-                    ${gk2Opts}
-                </select>
-            </td>
-            <td>
-                <input type="number" min="0" max="10" step="0.5" value="${ck2Val}" style="width:70px;" onchange="updateScore('${s.id}','cuoiKy2',this.value)">
-            </td>
-            <td>
-                <select style="width:120px;" onchange="updateScore('${s.id}','competence',this.value)">
-                    ${compOpts}
-                </select>
-            </td>
-            <td>
-                <select style="width:120px;" onchange="updateScore('${s.id}','quality',this.value)">
-                    ${qualOpts}
-                </select>
+                <textarea rows="2" style="min-width:260px;width:100%;resize:vertical;"
+                    placeholder="Nhận xét ${cfg.label}"
+                    onchange="updateScore('${s.id}','${cfg.commentField}',this.value)">${commentValue}</textarea>
             </td>
             <td><button class="btn btn-primary btn-sm" onclick="saveScore('${s.id}')"><i class="fas fa-save"></i></button></td>
         </tr>`;
@@ -3921,6 +4033,7 @@ function initScoreTable() {
 }
 
 async function updateScore(studentId, field, value) {
+    if (!requireEditPermission('cập nhật điểm')) { initScoreTable(); return; }
     const subject = APP_STATE.currentSubject;
     if (!APP_STATE.scores[studentId]) {
         APP_STATE.scores[studentId] = {};
@@ -3941,10 +4054,30 @@ async function updateScore(studentId, field, value) {
     if (field === 'giuaKy1' || field === 'giuaKy2') {
         sc[field] = value;
         updateData = { [field === 'giuaKy1' ? 'giua_ky_1' : 'giua_ky_2']: value };
-    } else if (field === 'cuoiKy1' || field === 'cuoiKy2') {
+    } else if (['nhanXetGk1','nhanXetCk1','nhanXetGk2','nhanXetCk2'].includes(field)) {
+        sc[field] = value;
+        const commentColumns = {
+            nhanXetGk1:'nhan_xet_gk1', nhanXetCk1:'nhan_xet_ck1',
+            nhanXetGk2:'nhan_xet_gk2', nhanXetCk2:'nhan_xet_ck2'
+        };
+        updateData = { [commentColumns[field]]: value };
+    } else if (field === 'cuoiKy1' || field === 'cuoiKy2' || field === 'cuoiKy2SauThiLai') {
         const num = parseFloat(value);
         sc[field] = isNaN(num) ? null : num;
-        updateData = { [field === 'cuoiKy1' ? 'cuoi_ky_1' : 'cuoi_ky_2']: isNaN(num) ? null : num };
+        const scoreColumns = {
+            cuoiKy1: 'cuoi_ky_1',
+            cuoiKy2: 'cuoi_ky_2',
+            cuoiKy2SauThiLai: 'cuoi_ky_2_sau_thi_lai'
+        };
+        updateData = { [scoreColumns[field]]: isNaN(num) ? null : num };
+    } else if (field === 'xepLoaiCuoiKy1' || field === 'xepLoaiCuoiKy2' || field === 'xepLoaiCuoiKy2SauThiLai') {
+        sc[field] = value;
+        const ratingColumns = {
+            xepLoaiCuoiKy1: 'xep_loai_cuoi_ky_1',
+            xepLoaiCuoiKy2: 'xep_loai_cuoi_ky_2',
+            xepLoaiCuoiKy2SauThiLai: 'xep_loai_cuoi_ky_2_sau_thi_lai'
+        };
+        updateData = { [ratingColumns[field]]: value };
     } else if (field === 'competence' || field === 'quality') {
         if (!APP_STATE.scores[studentId]) APP_STATE.scores[studentId] = {};
         if (!APP_STATE.scores[studentId][subject]) {
@@ -4005,6 +4138,7 @@ async function updateScore(studentId, field, value) {
 }
 
 function saveScore(studentId) {
+    if (!requireEditPermission('lưu điểm')) return;
     showToast('Đã lưu điểm!');
     initScoreTable();
 }
@@ -4014,7 +4148,8 @@ function saveScore(studentId) {
 // ============================================================
 function renderAttendance() {
     const today = new Date().toISOString().split('T')[0];
-    const classOptions = APP_STATE.classes.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+    const attendanceClasses = hasAssignedScope() ? getAccessibleClassesForSubject('') : APP_STATE.classes;
+    const classOptions = (attendanceClasses || []).map(c => `<option value="${c.name}">${c.name}</option>`).join('');
 
     return `
         <div class="card">
@@ -4100,9 +4235,11 @@ async function loadAttendance() {
     });
     html += `</tbody></table></div>`;
     wrapper.innerHTML = html;
+    applyViewerReadOnlyUI();
 }
 
 async function updateAttendanceStatus(date, classId, studentUuid, status) {
+    if (!requireEditPermission('cập nhật điểm danh')) { loadAttendance(); return; }
     try {
         const { error } = await supabase
             .from('app3_attendance')
@@ -4120,6 +4257,7 @@ async function updateAttendanceStatus(date, classId, studentUuid, status) {
 }
 
 async function saveAttendance() {
+    if (!requireEditPermission('lưu điểm danh')) return;
     showToast('Đã lưu điểm danh!');
     loadAttendance();
 }
@@ -4160,8 +4298,8 @@ function exportAttendanceExcel() {
 // 12. QUẢN LÝ KHEN THƯỞNG (CRUD)
 // ============================================================
 function renderRewards() {
-    const rewards = APP_STATE.rewards;
-    const studentMap = Object.fromEntries(APP_STATE.students.map(s => [s.id, s.fullName]));
+    const rewards = APP_STATE.rewards || [];
+    const studentMap = Object.fromEntries((APP_STATE.students || []).map(s => [s.db_uuid, s.fullName]));
     return `
         <div class="card">
             <div class="flex-between mb-2">
@@ -4171,104 +4309,85 @@ function renderRewards() {
                     <button class="btn btn-success btn-sm" onclick="exportRewards()"><i class="fas fa-file-excel"></i> Xuất Excel</button>
                 </div>
             </div>
-            <div class="table-wrapper">
-                <table>
-                    <thead><tr><th>STT</th><th>Học sinh</th><th>Ngày</th><th>Nội dung</th><th>Người quyết định</th><th>Thao tác</th></tr></thead>
-                    <tbody>
-                        ${rewards.length === 0 ? '<tr><td colspan="6" class="text-center text-muted">Chưa có khen thưởng nào.</td></tr>' :
-                        rewards.map((r, i) => `
-                            <tr>
-                                <td>${i+1}</td>
-                                <td>${studentMap[r.studentId] || 'Không xác định'}</td>
-                                <td>${formatDate(r.date)}</td>
-                                <td>${r.content}</td>
-                                <td>${r.decisionBy}</td>
-                                <td>
-                                    <button class="btn-icon" onclick="deleteReward('${r.id}')" style="color:#dc2626;"><i class="fas fa-trash"></i></button>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    `;
+            <div class="table-wrapper"><table>
+                <thead><tr><th>STT</th><th>Lớp</th><th>Môn</th><th>Học sinh</th><th>Ngày</th><th>Nội dung</th><th>Người quyết định</th><th>Thao tác</th></tr></thead>
+                <tbody>
+                    ${rewards.length === 0 ? '<tr><td colspan="8" class="text-center text-muted">Chưa có khen thưởng nào.</td></tr>' :
+                    rewards.map((r, i) => `<tr>
+                        <td>${i + 1}</td><td>${getContextClassName(r.classId)}</td><td>${r.subject || 'Dữ liệu cũ'}</td>
+                        <td>${studentMap[r.studentId] || 'Không xác định'}</td><td>${formatDate(r.date)}</td>
+                        <td>${r.content}</td><td>${r.decisionBy || ''}</td>
+                        <td><button class="btn-icon" onclick="deleteReward('${r.id}')" style="color:#dc2626;"><i class="fas fa-trash"></i></button></td>
+                    </tr>`).join('')}
+                </tbody>
+            </table></div>
+        </div>`;
 }
 
 function openAddReward() {
-    const studentOptions = APP_STATE.students.map(s => `<option value="${s.id}">${s.fullName}</option>`).join('');
-    showModal('Thêm khen thưởng', `
-        <div class="form-group"><label>Chọn học sinh *</label><select id="rewardStudent">${studentOptions}</select></div>
+    if (!requireEditPermission('thêm khen thưởng')) return;
+    const classes = APP_STATE.classes || [];
+    const modalPromise = showModal('Thêm khen thưởng', `
+        <div class="form-group"><label>Lớp *</label><select id="rewardClass"><option value="">-- Chọn lớp --</option>${classes.map(cls => `<option value="${cls.id}">${cls.name}</option>`).join('')}</select></div>
+        <div class="form-group"><label>Môn học *</label><select id="rewardSubject" disabled><option value="">-- Chọn môn --</option></select></div>
+        <div class="form-group"><label>Chọn học sinh *</label><select id="rewardStudent" disabled><option value="">-- Chọn học sinh --</option></select></div>
         <div class="form-group"><label>Ngày</label><input type="date" id="rewardDate" value="${new Date().toISOString().split('T')[0]}"></div>
         <div class="form-group"><label>Nội dung khen thưởng *</label><textarea id="rewardContent" placeholder="VD: Đạt giải nhất văn nghệ..."></textarea></div>
-        <div class="form-group"><label>Người quyết định</label><input type="text" id="rewardDecision" value="Võ Thanh Đậm"></div>
-    `, 'Thêm', 'Hủy').then(async confirmed => {
-        if (confirmed) {
-            const studentId = document.getElementById('rewardStudent').value;
-            const date = document.getElementById('rewardDate').value;
-            const content = document.getElementById('rewardContent').value.trim();
-            const decision = document.getElementById('rewardDecision').value.trim() || 'Võ Thanh Đậm';
-            if (!studentId || !content) {
-                showToast('Vui lòng chọn học sinh và nhập nội dung!', 'error');
-                return;
-            }
-            const student = APP_STATE.students.find(s => s.id === studentId);
-            if (!student) return;
+        <div class="form-group"><label>Người quyết định</label><input type="text" id="rewardDecision" value="${APP_STATE.settings?.teacherName || APP_STATE.currentUserDisplayName || ''}"></div>
+    `, 'Thêm', 'Hủy');
 
-            try {
-                const { data: newReward, error } = await supabase
-                    .from('app3_rewards')
-                    .insert({
-                        student_id: student.db_uuid,
-                        date: date,
-                        content: content,
-                        decision_by: decision
-                    })
-                    .select()
-                    .single();
-                if (error) throw error;
-                APP_STATE.rewards.unshift({
-                    id: newReward.id,
-                    studentId: student.id,
-                    date: newReward.date,
-                    content: newReward.content,
-                    decisionBy: newReward.decision_by
-                });
-                showToast('Thêm khen thưởng thành công!');
-                renderPage('rewards');
-            } catch (err) {
-                showToast('Lỗi thêm: ' + err.message, 'error');
-            }
+    setupClassSubjectStudentSelectors({classSelectId:'rewardClass', subjectSelectId:'rewardSubject', studentSelectId:'rewardStudent'});
+
+    modalPromise.then(async confirmed => {
+        if (!confirmed) return;
+        const classId = document.getElementById('rewardClass')?.value;
+        const subjectId = document.getElementById('rewardSubject')?.value;
+        const studentUuid = document.getElementById('rewardStudent')?.value;
+        const date = document.getElementById('rewardDate')?.value;
+        const content = document.getElementById('rewardContent')?.value.trim();
+        const decision = document.getElementById('rewardDecision')?.value.trim();
+        const subjectObj = (APP_STATE.subjectCatalog || []).find(subject => subject.id === subjectId);
+        const student = APP_STATE.students.find(s => s.db_uuid === studentUuid);
+        if (!classId || !subjectId || !studentUuid || !content || !subjectObj || !student) {
+            showToast('Vui lòng chọn đầy đủ Lớp, Môn, Học sinh và nhập nội dung!', 'error');
+            return;
         }
+        try {
+            const { data: newReward, error } = await supabase.from('app3_rewards').insert({
+                student_id: studentUuid, class_id: classId, subject_id: subjectId, subject: subjectObj.name,
+                date, content, decision_by: decision || null
+            }).select().single();
+            if (error) throw error;
+            APP_STATE.rewards.unshift({
+                id:newReward.id, studentId:newReward.student_id, classId:newReward.class_id,
+                subjectId:newReward.subject_id, subject:newReward.subject, date:newReward.date,
+                content:newReward.content, decisionBy:newReward.decision_by
+            });
+            showToast('Thêm khen thưởng thành công!');
+            renderPage('rewards');
+        } catch (err) { showToast('Lỗi thêm: ' + err.message, 'error'); }
     });
 }
 
 async function deleteReward(id) {
-    const r = APP_STATE.rewards.find(rew => rew.id === id);
-    if (!r) return;
-    const confirmed = await showModal('Xóa khen thưởng', `Bạn có chắc muốn xóa khen thưởng này?`, 'Xóa', 'Hủy');
-    if (confirmed) {
-        try {
-            const { error } = await supabase
-                .from('app3_rewards')
-                .delete()
-                .eq('id', id);
-            if (error) throw error;
-            APP_STATE.rewards = APP_STATE.rewards.filter(rew => rew.id !== id);
-            showToast('Đã xóa!', 'warning');
-            renderPage('rewards');
-        } catch (err) {
-            showToast('Lỗi xóa: ' + err.message, 'error');
-        }
-    }
+    if (!requireEditPermission('xóa khen thưởng')) return;
+    if (!APP_STATE.rewards.find(rew => rew.id === id)) return;
+    const confirmed = await showModal('Xóa khen thưởng', 'Bạn có chắc muốn xóa khen thưởng này?', 'Xóa', 'Hủy');
+    if (!confirmed) return;
+    try {
+        const { error } = await supabase.from('app3_rewards').delete().eq('id', id);
+        if (error) throw error;
+        APP_STATE.rewards = APP_STATE.rewards.filter(rew => rew.id !== id);
+        showToast('Đã xóa!', 'warning'); renderPage('rewards');
+    } catch (err) { showToast('Lỗi xóa: ' + err.message, 'error'); }
 }
 
 // ============================================================
 // 13. QUẢN LÝ KỶ LUẬT (CRUD)
 // ============================================================
 function renderDisciplines() {
-    const disciplines = APP_STATE.disciplines;
-    const studentMap = Object.fromEntries(APP_STATE.students.map(s => [s.id, s.fullName]));
+    const disciplines = APP_STATE.disciplines || [];
+    const studentMap = Object.fromEntries((APP_STATE.students || []).map(s => [s.db_uuid, s.fullName]));
     return `
         <div class="card">
             <div class="flex-between mb-2">
@@ -4278,96 +4397,76 @@ function renderDisciplines() {
                     <button class="btn btn-success btn-sm" onclick="exportDisciplines()"><i class="fas fa-file-excel"></i> Xuất Excel</button>
                 </div>
             </div>
-            <div class="table-wrapper">
-                <table>
-                    <thead><tr><th>STT</th><th>Học sinh</th><th>Ngày</th><th>Nội dung</th><th>Người quyết định</th><th>Thao tác</th></tr></thead>
-                    <tbody>
-                        ${disciplines.length === 0 ? '<tr><td colspan="6" class="text-center text-muted">Chưa có kỷ luật nào.</td></tr>' :
-                        disciplines.map((d, i) => `
-                            <tr>
-                                <td>${i+1}</td>
-                                <td>${studentMap[d.studentId] || 'Không xác định'}</td>
-                                <td>${formatDate(d.date)}</td>
-                                <td>${d.content}</td>
-                                <td>${d.decisionBy}</td>
-                                <td>
-                                    <button class="btn-icon" onclick="deleteDiscipline('${d.id}')" style="color:#dc2626;"><i class="fas fa-trash"></i></button>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    `;
+            <div class="table-wrapper"><table>
+                <thead><tr><th>STT</th><th>Lớp</th><th>Môn</th><th>Học sinh</th><th>Ngày</th><th>Nội dung</th><th>Người quyết định</th><th>Thao tác</th></tr></thead>
+                <tbody>
+                    ${disciplines.length === 0 ? '<tr><td colspan="8" class="text-center text-muted">Chưa có kỷ luật nào.</td></tr>' :
+                    disciplines.map((d, i) => `<tr>
+                        <td>${i + 1}</td><td>${getContextClassName(d.classId)}</td><td>${d.subject || 'Dữ liệu cũ'}</td>
+                        <td>${studentMap[d.studentId] || 'Không xác định'}</td><td>${formatDate(d.date)}</td>
+                        <td>${d.content}</td><td>${d.decisionBy || ''}</td>
+                        <td><button class="btn-icon" onclick="deleteDiscipline('${d.id}')" style="color:#dc2626;"><i class="fas fa-trash"></i></button></td>
+                    </tr>`).join('')}
+                </tbody>
+            </table></div>
+        </div>`;
 }
 
 function openAddDiscipline() {
-    const studentOptions = APP_STATE.students.map(s => `<option value="${s.id}">${s.fullName}</option>`).join('');
-    showModal('Thêm kỷ luật', `
-        <div class="form-group"><label>Chọn học sinh *</label><select id="disciplineStudent">${studentOptions}</select></div>
+    if (!requireEditPermission('thêm kỷ luật')) return;
+    const classes = APP_STATE.classes || [];
+    const modalPromise = showModal('Thêm kỷ luật', `
+        <div class="form-group"><label>Lớp *</label><select id="disciplineClass"><option value="">-- Chọn lớp --</option>${classes.map(cls => `<option value="${cls.id}">${cls.name}</option>`).join('')}</select></div>
+        <div class="form-group"><label>Môn học *</label><select id="disciplineSubject" disabled><option value="">-- Chọn môn --</option></select></div>
+        <div class="form-group"><label>Chọn học sinh *</label><select id="disciplineStudent" disabled><option value="">-- Chọn học sinh --</option></select></div>
         <div class="form-group"><label>Ngày</label><input type="date" id="disciplineDate" value="${new Date().toISOString().split('T')[0]}"></div>
         <div class="form-group"><label>Nội dung kỷ luật *</label><textarea id="disciplineContent" placeholder="VD: Đi học muộn..."></textarea></div>
-        <div class="form-group"><label>Người quyết định</label><input type="text" id="disciplineDecision" value="Võ Thanh Đậm"></div>
-    `, 'Thêm', 'Hủy').then(async confirmed => {
-        if (confirmed) {
-            const studentId = document.getElementById('disciplineStudent').value;
-            const date = document.getElementById('disciplineDate').value;
-            const content = document.getElementById('disciplineContent').value.trim();
-            const decision = document.getElementById('disciplineDecision').value.trim() || 'Võ Thanh Đậm';
-            if (!studentId || !content) {
-                showToast('Vui lòng chọn học sinh và nhập nội dung!', 'error');
-                return;
-            }
-            const student = APP_STATE.students.find(s => s.id === studentId);
-            if (!student) return;
+        <div class="form-group"><label>Người quyết định</label><input type="text" id="disciplineDecision" value="${APP_STATE.settings?.teacherName || APP_STATE.currentUserDisplayName || ''}"></div>
+    `, 'Thêm', 'Hủy');
 
-            try {
-                const { data: newDis, error } = await supabase
-                    .from('app3_disciplines')
-                    .insert({
-                        student_id: student.db_uuid,
-                        date: date,
-                        content: content,
-                        decision_by: decision
-                    })
-                    .select()
-                    .single();
-                if (error) throw error;
-                APP_STATE.disciplines.unshift({
-                    id: newDis.id,
-                    studentId: student.id,
-                    date: newDis.date,
-                    content: newDis.content,
-                    decisionBy: newDis.decision_by
-                });
-                showToast('Thêm kỷ luật thành công!');
-                renderPage('disciplines');
-            } catch (err) {
-                showToast('Lỗi thêm: ' + err.message, 'error');
-            }
+    setupClassSubjectStudentSelectors({classSelectId:'disciplineClass', subjectSelectId:'disciplineSubject', studentSelectId:'disciplineStudent'});
+
+    modalPromise.then(async confirmed => {
+        if (!confirmed) return;
+        const classId = document.getElementById('disciplineClass')?.value;
+        const subjectId = document.getElementById('disciplineSubject')?.value;
+        const studentUuid = document.getElementById('disciplineStudent')?.value;
+        const date = document.getElementById('disciplineDate')?.value;
+        const content = document.getElementById('disciplineContent')?.value.trim();
+        const decision = document.getElementById('disciplineDecision')?.value.trim();
+        const subjectObj = (APP_STATE.subjectCatalog || []).find(subject => subject.id === subjectId);
+        const student = APP_STATE.students.find(s => s.db_uuid === studentUuid);
+        if (!classId || !subjectId || !studentUuid || !content || !subjectObj || !student) {
+            showToast('Vui lòng chọn đầy đủ Lớp, Môn, Học sinh và nhập nội dung!', 'error');
+            return;
         }
+        try {
+            const { data: newDis, error } = await supabase.from('app3_disciplines').insert({
+                student_id: studentUuid, class_id: classId, subject_id: subjectId, subject: subjectObj.name,
+                date, content, decision_by: decision || null
+            }).select().single();
+            if (error) throw error;
+            APP_STATE.disciplines.unshift({
+                id:newDis.id, studentId:newDis.student_id, classId:newDis.class_id,
+                subjectId:newDis.subject_id, subject:newDis.subject, date:newDis.date,
+                content:newDis.content, decisionBy:newDis.decision_by
+            });
+            showToast('Thêm kỷ luật thành công!'); renderPage('disciplines');
+        } catch (err) { showToast('Lỗi thêm: ' + err.message, 'error'); }
     });
 }
 
 async function deleteDiscipline(id) {
-    const d = APP_STATE.disciplines.find(dis => dis.id === id);
-    if (!d) return;
-    const confirmed = await showModal('Xóa kỷ luật', `Bạn có chắc muốn xóa kỷ luật này?`, 'Xóa', 'Hủy');
-    if (confirmed) {
-        try {
-            const { error } = await supabase
-                .from('app3_disciplines')
-                .delete()
-                .eq('id', id);
-            if (error) throw error;
-            APP_STATE.disciplines = APP_STATE.disciplines.filter(dis => dis.id !== id);
-            showToast('Đã xóa!', 'warning');
-            renderPage('disciplines');
-        } catch (err) {
-            showToast('Lỗi xóa: ' + err.message, 'error');
-        }
-    }
+    if (!requireEditPermission('xóa kỷ luật')) return;
+    if (!APP_STATE.disciplines.find(dis => dis.id === id)) return;
+    const confirmed = await showModal('Xóa kỷ luật', 'Bạn có chắc muốn xóa kỷ luật này?', 'Xóa', 'Hủy');
+    if (!confirmed) return;
+    try {
+        const { error } = await supabase.from('app3_disciplines').delete().eq('id', id);
+        if (error) throw error;
+        APP_STATE.disciplines = APP_STATE.disciplines.filter(dis => dis.id !== id);
+        showToast('Đã xóa!', 'warning'); renderPage('disciplines');
+    } catch (err) { showToast('Lỗi xóa: ' + err.message, 'error'); }
 }
 
 // ============================================================
@@ -4444,6 +4543,7 @@ function calculateTotalSize() {
 }
 
 async function openUploadFile() {
+    if (!requireEditPermission('tải file lên')) return;
     const totalMB = parseFloat(calculateTotalSize());
     const MAX_TOTAL_MB = 4;
     if (totalMB >= MAX_TOTAL_MB) {
@@ -4588,6 +4688,7 @@ function downloadFile(id) {
 }
 
 function editFile(id) {
+    if (!requireEditPermission('sửa file')) return;
     const file = APP_STATE.files.find(f => f.id === id);
     if (!file) return;
     showModal('Sửa file', `
@@ -4622,6 +4723,7 @@ function editFile(id) {
 }
 
 async function deleteFile(id) {
+    if (!requireEditPermission('xóa file')) return;
     const file = APP_STATE.files.find(f => f.id === id);
     if (!file) return;
     const confirmed = await showModal('Xóa file', `Bạn có chắc muốn xóa file <strong>${file.name}</strong>?`, 'Xóa', 'Hủy');
@@ -4662,10 +4764,18 @@ function renderStatistics() {
 
 APP_STATE.statSubject = statSubject;
 
+const statAccessibleClasses = getAccessibleClassesForSubject(statSubject);
+const statAllowedClassIds = new Set(statAccessibleClasses.map(c => c.id));
+const statClass = APP_STATE.statClass || '';
+let statStudents = hasAssignedScope()
+    ? APP_STATE.students.filter(student => statAllowedClassIds.has(student.class_id))
+    : APP_STATE.students;
+if (statClass) statStudents = statStudents.filter(student => student.class === statClass);
+
 let competenceEvaluated = 0;
 let qualityEvaluated = 0;
 
-APP_STATE.students.forEach(student => {
+statStudents.forEach(student => {
     const subjectScore = APP_STATE.scores[student.id]?.[statSubject];
 
     if (subjectScore?.competence?.trim()) {
@@ -4678,10 +4788,10 @@ APP_STATE.students.forEach(student => {
 });
 
 const competenceNotEvaluated =
-    APP_STATE.students.length - competenceEvaluated;
+    statStudents.length - competenceEvaluated;
 
 const qualityNotEvaluated =
-    APP_STATE.students.length - qualityEvaluated;
+    statStudents.length - qualityEvaluated;
     return `
         <div class="card">
             <h3 class="card-title"><i class="fas fa-chart-bar"></i> Thống kê chi tiết</h3>
@@ -4689,11 +4799,7 @@ const qualityNotEvaluated =
     <label>Môn học</label>
     <select id="statSubjectSelect" onchange="switchStatSubject(this.value)">
         ${
-            (
-                APP_STATE.subjectCatalog?.length
-                    ? APP_STATE.subjectCatalog.map(subject => subject.name)
-                    : SUBJECTS
-            )
+            getVisibleSubjectNames()
             .map(subject => `
                 <option value="${subject}" ${
                     subject === (
@@ -4709,6 +4815,11 @@ const qualityNotEvaluated =
         }
     </select>
 </div>
+            <div class="flex gap-2 mb-2" style="flex-wrap:wrap;align-items:end">
+                <div class="form-group" style="margin:0;min-width:180px"><label>Lớp báo cáo</label><select id="advancedReportClass" onchange="refreshAdvancedStatistics()"><option value="">Tất cả lớp</option>${statAccessibleClasses.map(c => `<option value="${c.name}" ${c.name === statClass ? 'selected' : ''}>${c.name}</option>`).join('')}</select></div>
+                <div class="form-group" style="margin:0;min-width:180px"><label>Môn báo cáo</label><select id="advancedReportSubject">${getVisibleSubjectNames().map(name=>`<option value="${name}" ${name===statSubject?'selected':''}>${name}</option>`).join('')}</select></div>
+                <button class="btn btn-success" onclick="exportAdvancedReport()"><i class="fas fa-file-excel"></i> Xuất báo cáo nâng cao</button>
+            </div>
             <div class="chart-grid">
     <div class="chart-box"><canvas id="statGradeChart"></canvas></div>
     <div class="chart-box"><canvas id="statGenderChart"></canvas></div>
@@ -4716,8 +4827,8 @@ const qualityNotEvaluated =
     <div class="chart-box"><canvas id="statQualityChart"></canvas></div>
 </div>
             <div class="stats-grid mt-2">
-                <div class="stat-card"><div class="stat-label">Tổng học sinh</div><div class="stat-value">${APP_STATE.students.length}</div></div>
-                <div class="stat-card"><div class="stat-label">Số lớp</div><div class="stat-value">${APP_STATE.classes.length}</div></div>
+                <div class="stat-card"><div class="stat-label">Tổng học sinh</div><div class="stat-value">${statStudents.length}</div></div>
+                <div class="stat-card"><div class="stat-label">Số lớp</div><div class="stat-value">${statClass ? 1 : statAccessibleClasses.length}</div></div>
                 <div class="stat-card"><div class="stat-label">Khen thưởng</div><div class="stat-value">${APP_STATE.rewards.length}</div></div>
                 <div class="stat-card"><div class="stat-label">Kỷ luật</div><div class="stat-value">${APP_STATE.disciplines.length}</div></div>
             </div>
@@ -4745,6 +4856,11 @@ const qualityNotEvaluated =
         </div>
     `;
 }
+function refreshAdvancedStatistics() {
+    APP_STATE.statClass = document.getElementById('advancedReportClass')?.value || '';
+    renderPage('statistics');
+}
+
 function switchStatSubject(subject) {
     const availableSubjects =
         APP_STATE.subjectCatalog?.length
@@ -4761,8 +4877,13 @@ function switchStatSubject(subject) {
     renderPage('statistics');
 }
 function initStatCharts() {
+    const statClass = APP_STATE.statClass || '';
+    const statStudents = statClass
+        ? APP_STATE.students.filter(student => student.class === statClass)
+        : APP_STATE.students;
+
     const grades = ['1', '2', '3', '4', '5'];
-    const counts = grades.map(g => APP_STATE.students.filter(s => s.grade === g).length);
+    const counts = grades.map(g => statStudents.filter(s => s.grade === g).length);
     if (chartInstances.statGrade) chartInstances.statGrade.destroy();
     chartInstances.statGrade = new Chart(document.getElementById('statGradeChart'), {
         type: 'bar',
@@ -4778,8 +4899,8 @@ function initStatCharts() {
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
     });
 
-    const male = APP_STATE.students.filter(s => s.gender === 'Nam').length;
-    const female = APP_STATE.students.length - male;
+    const male = statStudents.filter(s => s.gender === 'Nam').length;
+    const female = statStudents.length - male;
     if (chartInstances.statGender) chartInstances.statGender.destroy();
     chartInstances.statGender = new Chart(document.getElementById('statGenderChart'), {
         type: 'doughnut',
@@ -4802,7 +4923,7 @@ APP_STATE.statSubject = statSubject;
 
 const compMap = {};
 
-APP_STATE.students.forEach(s => {
+statStudents.forEach(s => {
     const val =
         APP_STATE.scores[s.id]?.[statSubject]?.competence ||
         'Chưa xếp';
@@ -4852,7 +4973,7 @@ chartInstances.statCompetence = new Chart(
 // Biểu đồ Phẩm chất theo môn
 const qualityMap = {};
 
-APP_STATE.students.forEach(s => {
+statStudents.forEach(s => {
     const val =
         APP_STATE.scores[s.id]?.[statSubject]?.quality ||
         'Chưa xếp';
@@ -4911,11 +5032,7 @@ function renderSearch() {
     <label>Môn học</label>
     <select id="searchSubjectSelect" onchange="switchSearchSubject(this.value)">
         ${
-            (
-                APP_STATE.subjectCatalog?.length
-                    ? APP_STATE.subjectCatalog.map(subject => subject.name)
-                    : SUBJECTS
-            )
+            getVisibleSubjectNames()
             .map(subject => `
                 <option value="${subject}" ${
                     subject === (
@@ -5072,6 +5189,23 @@ function globalSearch() {
 
 function renderSettings() {
     const settings = APP_STATE.settings;
+    const subjects = APP_STATE.allSubjectCatalog?.length
+        ? APP_STATE.allSubjectCatalog
+        : SUBJECT_CONFIG.map(subject => ({ ...subject, grades: [1,2,3,4,5], active: true }));
+    const subjectRows = subjects.map(subject => {
+        const grades = Array.isArray(subject.grades) ? subject.grades.map(String) : [];
+        return `
+            <tr>
+                <td><strong>${subject.name}</strong><div class="text-muted" style="font-size:.75rem">${subject.id}</div></td>
+                <td>
+                    <div class="subject-grade-list">
+                        ${[1,2,3,4,5].map(g => `<label><input type="checkbox" class="subject-grade" data-subject-id="${subject.id}" value="${g}" ${grades.includes(String(g)) ? 'checked' : ''}> ${g}</label>`).join('')}
+                    </div>
+                </td>
+                <td><label class="switch-inline"><input type="checkbox" id="subjectActive_${subject.id}" ${subject.active !== false ? 'checked' : ''}> <span>${subject.active !== false ? 'Đang bật' : 'Đang tắt'}</span></label></td>
+                <td><button class="btn btn-primary btn-sm" onclick="saveSubjectConfig('${subject.id}')"><i class="fas fa-save"></i> Lưu</button></td>
+            </tr>`;
+    }).join('');
     return `
         <div class="card">
             <h3 class="card-title"><i class="fas fa-cog"></i> Cài đặt</h3>
@@ -5079,26 +5213,48 @@ function renderSettings() {
                 <div class="form-group"><label>Tên trường</label><input type="text" id="setSchoolName" value="${settings.schoolName || ''}"></div>
                 <div class="form-group"><label>Năm học</label><input type="text" id="setSchoolYear" value="${settings.schoolYear || ''}"></div>
                 <div class="form-group"><label>Giáo viên</label><input type="text" id="setTeacherName" value="${settings.teacherName || ''}"></div>
-                <div class="form-group"><label>Giao diện</label>
-                    <select id="setTheme"><option value="light" ${settings.theme === 'light' ? 'selected' : ''}>Sáng</option><option value="dark" ${settings.theme === 'dark' ? 'selected' : ''}>Tối</option></select>
-                </div>
+                <div class="form-group"><label>Giao diện</label><select id="setTheme"><option value="light" ${settings.theme === 'light' ? 'selected' : ''}>Sáng</option><option value="dark" ${settings.theme === 'dark' ? 'selected' : ''}>Tối</option></select></div>
             </div>
             <button class="btn btn-primary" onclick="saveSettings()"><i class="fas fa-save"></i> Lưu cài đặt</button>
             <hr class="my-3">
+            <h4><i class="fas fa-book"></i> Quản lý môn học</h4>
+            <p class="text-muted">Bật/tắt môn và chọn các khối lớp áp dụng. Môn bị tắt sẽ không xuất hiện trong các màn hình nhập liệu mới nhưng dữ liệu cũ vẫn được giữ.</p>
+            <div class="table-wrapper"><table><thead><tr><th>Môn học</th><th>Khối áp dụng</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>${subjectRows}</tbody></table></div>
+            ${isAdmin() ? `
+            <hr class="my-3">
+            <h4><i class="fas fa-globe"></i> Nội dung website công khai</h4>
+            <p class="text-muted">Admin có thể thêm, sửa, ẩn/hiện và xóa Tin tức/Thông báo hoặc Tài liệu. Nội dung đã bật công khai sẽ xuất hiện ngay trên trang chủ.</p>
+            <div class="public-admin-tabs">
+                <button class="btn btn-primary btn-sm" onclick="showPublicContentEditor('post')"><i class="fas fa-newspaper"></i> Quản lý Tin tức</button>
+                <button class="btn btn-secondary btn-sm" onclick="showPublicContentEditor('document')"><i class="fas fa-file-lines"></i> Quản lý Tài liệu</button>
+            </div>
+            <div id="publicContentAdminPanel" class="public-content-admin-panel"><p class="text-muted">Chọn một nhóm nội dung để quản lý.</p></div>
+            ` : ''}
+            <hr class="my-3">
+            <h4><i class="fas fa-database"></i> Sao lưu & khôi phục</h4>
+            <div class="flex gap-2" style="flex-wrap:wrap">
+                <button class="btn btn-success" onclick="backupAllData()"><i class="fas fa-download"></i> Sao lưu JSON</button>
+                <button class="btn btn-warning" onclick="document.getElementById('mergeBackupInput').click()"><i class="fas fa-code-merge"></i> Hợp nhất JSON</button>
+                <button class="btn btn-danger" onclick="document.getElementById('fullRestoreBackupInput').click()"><i class="fas fa-rotate-left"></i> Khôi phục toàn bộ</button>
+                <input type="file" id="mergeBackupInput" accept=".json" style="display:none" onchange="mergeBackupData(event)">
+                <input type="file" id="fullRestoreBackupInput" accept=".json" style="display:none" onchange="fullRestoreBackupData(event)">
+            </div>
+            <p class="text-muted mt-2" style="font-size:.8rem"><strong>Hợp nhất JSON:</strong> ghi đè/thêm theo khóa hiện có, không xóa dữ liệu mới. <strong>Khôi phục toàn bộ:</strong> đưa các bảng nghiệp vụ về đúng snapshot trong file; dữ liệu không có trong backup sẽ bị xóa. Full Restore chỉ hoạt động sau khi kích hoạt RPC Supabase ở Bước 109.</p>
+            <hr class="my-3">
+            <h4><i class="fas fa-users-cog"></i> Người dùng & phân quyền</h4>
+            <div id="userRolePanel"><p class="text-muted">Đang kiểm tra cấu hình phân quyền...</p></div>
+            <hr class="my-3">
             <h4>Đổi mật khẩu</h4>
-            <div class="form-grid">
-                <div class="form-group"><label>Mật khẩu mới</label><input type="password" id="newPassword" placeholder="••••••••"></div>
-                <div class="form-group"><label>Xác nhận</label><input type="password" id="confirmPassword" placeholder="••••••••"></div>
-            </div>
+            <div class="form-grid"><div class="form-group"><label>Mật khẩu mới</label><input type="password" id="newPassword" placeholder="••••••••"></div><div class="form-group"><label>Xác nhận</label><input type="password" id="confirmPassword" placeholder="••••••••"></div></div>
             <button class="btn btn-warning" onclick="changePassword()"><i class="fas fa-key"></i> Đổi mật khẩu</button>
-            </div>
-    `;
+        </div>`;
 }
 
-function initSettings() {}
+function initSettings() { loadUserRolePanel(); if (isAdmin()) showPublicContentEditor('post'); }
 function initSearch() {}
 
 async function saveSettings() {
+    if (!requireEditPermission('lưu cài đặt')) return;
     const settings = APP_STATE.settings;
     settings.schoolName = document.getElementById('setSchoolName').value.trim();
     settings.schoolYear = document.getElementById('setSchoolYear').value.trim();
@@ -5269,7 +5425,7 @@ const quality = evaluation.quality || '';
                 </table>
 
                 <div class="footer">
-                    &copy; ${new Date().getFullYear()} Trường Tiểu học Trần Quốc Toản - Hệ thống QLHS
+                    &copy; ${new Date().getFullYear()} Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn - Hệ thống QLHS
                 </div>
             </div>
             <script>
@@ -5380,8 +5536,10 @@ function exportRewards() {
         showToast('Chưa có dữ liệu khen thưởng.', 'warning');
         return;
     }
-    const studentMap = Object.fromEntries(APP_STATE.students.map(s => [s.id, s.fullName]));
+    const studentMap = Object.fromEntries(APP_STATE.students.map(s => [s.db_uuid, s.fullName]));
     const data = APP_STATE.rewards.map(r => ({
+        'Lớp': getContextClassName(r.classId),
+        'Môn': r.subject || 'Dữ liệu cũ',
         'Học sinh': studentMap[r.studentId] || 'Không xác định',
         'Ngày': r.date,
         'Nội dung': r.content,
@@ -5399,8 +5557,10 @@ function exportDisciplines() {
         showToast('Chưa có dữ liệu kỷ luật.', 'warning');
         return;
     }
-    const studentMap = Object.fromEntries(APP_STATE.students.map(s => [s.id, s.fullName]));
+    const studentMap = Object.fromEntries(APP_STATE.students.map(s => [s.db_uuid, s.fullName]));
     const data = APP_STATE.disciplines.map(d => ({
+        'Lớp': getContextClassName(d.classId),
+        'Môn': d.subject || 'Dữ liệu cũ',
         'Học sinh': studentMap[d.studentId] || 'Không xác định',
         'Ngày': d.date,
         'Nội dung': d.content,
@@ -5464,6 +5624,419 @@ function initNavigation() {
     });
 }
 
+// ============================================================
+// WEBSITE PUBLIC - BƯỚC 147.3: TIN TỨC + ẢNH ĐẠI DIỆN TỪ MÁY
+// ============================================================
+const PUBLIC_POST_IMAGE_BUCKET = 'app3-public-post-images';
+const PUBLIC_POST_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+let PUBLIC_POST_CACHE = [];
+function publicEscape(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+}
+function publicDate(value) {
+    if (!value) return '';
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('vi-VN');
+}
+function publicSafeImageUrl(value) {
+    const url = String(value || '').trim();
+    if (!url) return '';
+    if (/^(https?:\/\/|\/|\.\/|assets\/|data:image\/)/i.test(url)) return publicEscape(url);
+    return '';
+}
+function publicPostThumb(post, compact=false) {
+    const imageUrl = publicSafeImageUrl(post.image_url);
+    if (imageUrl) return `<div class="${compact?'news-mini-thumb':'news-thumb news-thumb-image'}"><img src="${imageUrl}" alt="${publicEscape(post.title || 'Tin tức')}" loading="lazy"><span>${publicEscape(post.category || 'TIN TỨC')}</span></div>`;
+    if (compact) return `<div class="news-mini-icon"><i class="fas fa-bullhorn"></i></div>`;
+    return `<div class="news-thumb"><i class="fas fa-school-flag"></i><span>${publicEscape(post.category || 'TIN TỨC')}</span></div>`;
+}
+async function loadPublicWebsiteContent() {
+    const newsGrid = document.getElementById('publicNewsGrid');
+    const docGrid = document.getElementById('publicDocumentGrid');
+    try {
+        const [postsRes, docsRes] = await Promise.all([
+            supabase.from('app3_public_posts').select('*').eq('is_published', true).order('published_at', { ascending:false }).limit(8),
+            supabase.from('app3_public_documents').select('*').eq('is_published', true).order('created_at', { ascending:false }).limit(6)
+        ]);
+        if (postsRes.error) throw postsRes.error;
+        if (docsRes.error) throw docsRes.error;
+        const posts = postsRes.data || [];
+        const docs = docsRes.data || [];
+        PUBLIC_POST_CACHE = posts;
+        if (newsGrid) {
+            if (!posts.length) newsGrid.innerHTML = '<div class="public-empty-state"><i class="fas fa-newspaper"></i><strong>Chưa có tin tức công khai</strong><span>Nội dung sẽ được cập nhật bởi nhà trường.</span></div>';
+            else {
+                const visible = posts.slice(0,4), [first, ...rest] = visible;
+                newsGrid.innerHTML = `<article class="news-card news-featured public-post-clickable" role="button" tabindex="0" onclick="openPublicPostDetail('${first.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPublicPostDetail('${first.id}')}" aria-label="Xem bài ${publicEscape(first.title)}">${publicPostThumb(first)}<div class="news-body"><small><i class="far fa-calendar"></i> ${publicDate(first.published_at)}</small><h3>${publicEscape(first.title)}</h3><p>${publicEscape(first.summary || '')}</p><span class="news-read-more">Đọc chi tiết <i class="fas fa-arrow-right"></i></span></div></article><div class="news-side-list">${rest.map(item=>`<article class="news-mini public-post-clickable" role="button" tabindex="0" onclick="openPublicPostDetail('${item.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPublicPostDetail('${item.id}')}" aria-label="Xem bài ${publicEscape(item.title)}">${publicPostThumb(item,true)}<div><small>${publicEscape(item.category || 'THÔNG BÁO')} · ${publicDate(item.published_at)}</small><h3>${publicEscape(item.title)}</h3><p>${publicEscape(item.summary || '')}</p></div></article>`).join('')}</div>`;
+            }
+        }
+        if (docGrid) {
+            if (!docs.length) docGrid.innerHTML = '<div class="public-empty-state"><i class="fas fa-folder-open"></i><strong>Chưa có tài liệu công khai</strong><span>Tài liệu sẽ được cập nhật bởi nhà trường.</span></div>';
+            else docGrid.innerHTML = docs.map(item=>`<article><i class="fas fa-file-lines"></i><div><h3>${publicEscape(item.title)}</h3><p>${publicEscape(item.description || item.category || '')}</p></div>${item.file_url ? `<a class="public-doc-link" href="${publicEscape(item.file_url)}" target="_blank" rel="noopener"><i class="fas fa-arrow-up-right-from-square"></i> Mở tài liệu</a>` : '<span>Chưa có liên kết</span>'}</article>`).join('');
+        }
+    } catch (err) {
+        console.warn('Không thể tải nội dung website công khai:', err);
+        if (newsGrid) newsGrid.innerHTML = '<div class="public-empty-state"><i class="fas fa-circle-exclamation"></i><strong>Chưa tải được tin tức</strong><span>Hãy kiểm tra SQL Bước 145/147 trong Supabase.</span></div>';
+        if (docGrid) docGrid.innerHTML = '<div class="public-empty-state"><i class="fas fa-circle-exclamation"></i><strong>Chưa tải được tài liệu</strong><span>Hãy kiểm tra SQL Bước 145 trong Supabase.</span></div>';
+    }
+}
+async function openPublicPostDetail(id) {
+    const modal = document.getElementById('publicPostModal');
+    const body = document.getElementById('publicPostModalBody');
+    if (!modal || !body || !id) return;
+    modal.classList.remove('hidden');
+    modal.setAttribute('aria-hidden','false');
+    document.body.classList.add('public-modal-open');
+    body.innerHTML = '<div class="public-post-loading"><i class="fas fa-spinner fa-spin"></i> Đang tải bài viết...</div>';
+    let post = PUBLIC_POST_CACHE.find(x => x.id === id);
+    if (!post || post.content === undefined || post.image_url === undefined) {
+        const {data,error} = await supabase.from('app3_public_posts').select('*').eq('id',id).maybeSingle();
+        if (error || !data) {
+            body.innerHTML = `<div class="public-post-error"><i class="fas fa-circle-exclamation"></i><h3>Không mở được bài viết</h3><p>${publicEscape(error?.message || 'Bài viết không tồn tại hoặc chưa được công khai.')}</p><button class="btn btn-primary" onclick="closePublicPostDetail()">Đóng</button></div>`;
+            return;
+        }
+        post = data;
+    }
+    const related = PUBLIC_POST_CACHE.filter(x => x.id !== post.id).slice(0,3);
+    const imageUrl = publicSafeImageUrl(post.image_url);
+    const content = String(post.content || post.summary || '').trim();
+    const paragraphs = content ? content.split(/\n{2,}|\r?\n/).filter(Boolean).map(t=>`<p>${publicEscape(t)}</p>`).join('') : '<p>Nội dung bài viết đang được cập nhật.</p>';
+    body.innerHTML = `<article class="public-post-detail">
+        <button class="public-post-back" onclick="closePublicPostDetail()"><i class="fas fa-arrow-left"></i> Quay lại trang chủ</button>
+        <div class="public-post-meta"><span>${publicEscape(post.category || 'TIN TỨC')}</span><small><i class="far fa-calendar"></i> ${publicDate(post.published_at || post.created_at)}</small></div>
+        <h1>${publicEscape(post.title)}</h1>
+        ${post.summary ? `<p class="public-post-lead">${publicEscape(post.summary)}</p>` : ''}
+        ${imageUrl ? `<figure class="public-post-hero"><img src="${imageUrl}" alt="${publicEscape(post.title)}"></figure>` : ''}
+        <div class="public-post-content">${paragraphs}</div>
+        ${related.length ? `<aside class="public-related-posts"><div class="public-related-heading"><span>TIN LIÊN QUAN</span><h2>Có thể bạn quan tâm</h2></div><div class="public-related-grid">${related.map(x=>`<button type="button" onclick="openPublicPostDetail('${x.id}')"><small>${publicEscape(x.category || 'TIN TỨC')} · ${publicDate(x.published_at)}</small><strong>${publicEscape(x.title)}</strong><span>${publicEscape(x.summary || '')}</span></button>`).join('')}</div></aside>` : ''}
+    </article>`;
+    setTimeout(()=>modal.querySelector('.public-post-back')?.focus(),30);
+}
+function closePublicPostDetail() {
+    const modal = document.getElementById('publicPostModal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden','true');
+    document.body.classList.remove('public-modal-open');
+}
+async function showPublicContentEditor(type='post') {
+    if (!isAdmin()) return;
+    const panel=document.getElementById('publicContentAdminPanel'); if(!panel) return;
+    const isPost=type==='post', table=isPost?'app3_public_posts':'app3_public_documents';
+    panel.innerHTML='<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Đang tải...</p>';
+    const {data,error}=await supabase.from(table).select('*').order('created_at',{ascending:false});
+    if(error){panel.innerHTML=`<p class="text-danger">Lỗi: ${publicEscape(error.message)}</p>`;return;}
+    panel.innerHTML=`<div class="public-admin-form">
+      <input type="hidden" id="publicEditId"><input type="hidden" id="publicEditType" value="${type}">
+      <div class="form-grid"><div class="form-group"><label>Tiêu đề</label><input id="publicEditTitle" placeholder="Nhập tiêu đề"></div><div class="form-group"><label>Nhóm</label><input id="publicEditCategory" placeholder="Ví dụ: THÔNG BÁO"></div></div>
+      <div class="form-group"><label>${isPost?'Tóm tắt ngắn':'Mô tả'}</label><textarea id="publicEditDescription" rows="3" placeholder="${isPost?'Nội dung ngắn hiển thị trên thẻ tin ở trang chủ.':''}"></textarea></div>
+      ${isPost?`<div class="form-group"><label>Nội dung đầy đủ bài viết</label><textarea id="publicEditContent" rows="8" placeholder="Nhập nội dung chi tiết. Có thể xuống dòng để chia đoạn."></textarea></div>
+      <div class="form-group public-image-upload-group">
+        <label>Ảnh đại diện</label>
+        <input id="publicEditImageUrl" type="hidden" data-original-url="" data-remove="false">
+        <div class="public-image-upload-box">
+          <div id="publicImagePreview" class="public-image-preview empty"><i class="fas fa-image"></i><span>Chưa chọn ảnh</span></div>
+          <div class="public-image-upload-actions">
+            <label class="btn btn-secondary btn-sm public-image-file-label"><i class="fas fa-upload"></i> Chọn ảnh từ máy<input id="publicEditImageFile" type="file" accept="image/jpeg,image/png,image/webp" onchange="handlePublicPostImageSelection(this)"></label>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="clearPublicPostImage()"><i class="fas fa-xmark"></i> Bỏ ảnh</button>
+            <small>JPG, PNG hoặc WebP · tối đa 5 MB</small>
+          </div>
+        </div>
+      </div>`:`<div class="form-group"><label>Liên kết tài liệu (URL)</label><input id="publicEditUrl" type="url" placeholder="https://..."></div>`}
+      <label class="switch-inline"><input type="checkbox" id="publicEditPublished" checked> <span>Công khai trên website</span></label>
+      <div class="flex gap-2 mt-2"><button class="btn btn-primary btn-sm" onclick="savePublicContent()"><i class="fas fa-save"></i> Lưu</button><button class="btn btn-secondary btn-sm" onclick="resetPublicContentForm()">Làm mới</button></div>
+    </div><div class="table-wrapper mt-2"><table><thead><tr><th>Tiêu đề</th><th>Nhóm</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>${(data||[]).map(x=>`<tr><td><strong>${publicEscape(x.title)}</strong></td><td>${publicEscape(x.category||'')}</td><td>${x.is_published?'Công khai':'Đang ẩn'}</td><td><button class="btn btn-primary btn-sm" onclick='editPublicContent(${JSON.stringify(JSON.stringify(x))},"${type}")'><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="deletePublicContent('${x.id}','${type}')"><i class="fas fa-trash"></i></button></td></tr>`).join('')||'<tr><td colspan="4" class="text-muted">Chưa có dữ liệu.</td></tr>'}</tbody></table></div>`;
+}
+function setPublicPostImagePreview(url='') {
+    const box=document.getElementById('publicImagePreview');
+    if(!box) return;
+    const safe=publicSafeImageUrl(url);
+    if(safe){
+        box.classList.remove('empty');
+        box.innerHTML=`<img src="${safe}" alt="Xem trước ảnh đại diện">`;
+    }else{
+        box.classList.add('empty');
+        box.innerHTML='<i class="fas fa-image"></i><span>Chưa chọn ảnh</span>';
+    }
+}
+function handlePublicPostImageSelection(input){
+    const file=input?.files?.[0];
+    if(!file) return;
+    if(!['image/jpeg','image/png','image/webp'].includes(file.type)){
+        showToast('Chỉ chấp nhận ảnh JPG, PNG hoặc WebP.','error');
+        input.value=''; return;
+    }
+    if(file.size>PUBLIC_POST_IMAGE_MAX_BYTES){
+        showToast('Ảnh vượt quá 5 MB. Vui lòng chọn ảnh nhỏ hơn.','error');
+        input.value=''; return;
+    }
+    const hidden=document.getElementById('publicEditImageUrl');
+    if(hidden) hidden.dataset.remove='false';
+    const reader=new FileReader();
+    reader.onload=()=>setPublicPostImagePreview(reader.result);
+    reader.readAsDataURL(file);
+}
+function clearPublicPostImage(){
+    const hidden=document.getElementById('publicEditImageUrl');
+    const file=document.getElementById('publicEditImageFile');
+    if(hidden){ hidden.value=''; hidden.dataset.remove='true'; }
+    if(file) file.value='';
+    setPublicPostImagePreview('');
+    showToast('Ảnh sẽ được xóa khi bạn bấm Lưu.','info');
+}
+function publicPostStoragePathFromUrl(url){
+    try{
+        const marker=`/storage/v1/object/public/${PUBLIC_POST_IMAGE_BUCKET}/`;
+        const text=String(url||'');
+        const idx=text.indexOf(marker);
+        return idx<0?'':decodeURIComponent(text.slice(idx+marker.length).split('?')[0]);
+    }catch{return '';}
+}
+async function uploadPublicPostImage(file){
+    if(!file) return '';
+    const {data:userData,error:userError}=await supabase.auth.getUser();
+    if(userError||!userData?.user) throw new Error('Phiên đăng nhập không hợp lệ.');
+    const ext=(file.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'')||'jpg';
+    const base=(file.name.replace(/\.[^.]+$/,'')||'anh').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,50)||'anh';
+    const path=`posts/${userData.user.id}/${Date.now()}-${base}.${ext}`;
+    const {error}=await supabase.storage.from(PUBLIC_POST_IMAGE_BUCKET).upload(path,file,{cacheControl:'3600',upsert:false,contentType:file.type});
+    if(error) throw error;
+    const {data}=supabase.storage.from(PUBLIC_POST_IMAGE_BUCKET).getPublicUrl(path);
+    if(!data?.publicUrl) throw new Error('Không lấy được URL công khai của ảnh.');
+    return data.publicUrl;
+}
+async function removePublicPostStoredImage(url){
+    const path=publicPostStoragePathFromUrl(url);
+    if(!path) return;
+    const {error}=await supabase.storage.from(PUBLIC_POST_IMAGE_BUCKET).remove([path]);
+    if(error) console.warn('Không thể xóa ảnh cũ khỏi Storage:',error);
+}
+function editPublicContent(json,type){
+    const x=JSON.parse(json);
+    document.getElementById('publicEditId').value=x.id||'';
+    document.getElementById('publicEditTitle').value=x.title||'';
+    document.getElementById('publicEditCategory').value=x.category||'';
+    document.getElementById('publicEditDescription').value=x.summary||x.description||'';
+    document.getElementById('publicEditPublished').checked=x.is_published!==false;
+    if(type==='post'){
+        document.getElementById('publicEditContent').value=x.content||'';
+        const imageHidden=document.getElementById('publicEditImageUrl');
+        imageHidden.value=x.image_url||'';
+        imageHidden.dataset.originalUrl=x.image_url||'';
+        imageHidden.dataset.remove='false';
+        const file=document.getElementById('publicEditImageFile'); if(file) file.value='';
+        setPublicPostImagePreview(x.image_url||'');
+    }else document.getElementById('publicEditUrl').value=x.file_url||'';
+}
+function resetPublicContentForm(){const type=document.getElementById('publicEditType')?.value||'post';showPublicContentEditor(type);}
+async function savePublicContent(){
+    if(!isAdmin())return;
+    const type=document.getElementById('publicEditType').value,id=document.getElementById('publicEditId').value,title=document.getElementById('publicEditTitle').value.trim(),category=document.getElementById('publicEditCategory').value.trim(),description=document.getElementById('publicEditDescription').value.trim(),is_published=document.getElementById('publicEditPublished').checked;
+    if(!title){showToast('Vui lòng nhập tiêu đề.','error');return;}
+    const table=type==='post'?'app3_public_posts':'app3_public_documents';
+    let payload={title,category,is_published,updated_at:new Date().toISOString()};
+    let oldImageUrl='';
+    let uploadedImageUrl='';
+    if(type==='post'){
+        payload.summary=description;
+        payload.content=document.getElementById('publicEditContent').value.trim()||null;
+        const imageHidden=document.getElementById('publicEditImageUrl');
+        oldImageUrl=imageHidden?.dataset?.originalUrl?.trim()||imageHidden?.value?.trim()||'';
+        const removeImage=imageHidden?.dataset?.remove==='true';
+        const imageFile=document.getElementById('publicEditImageFile')?.files?.[0]||null;
+        if(imageFile){
+            try{
+                showToast('Đang tải ảnh đại diện...','info');
+                uploadedImageUrl=await uploadPublicPostImage(imageFile);
+                payload.image_url=uploadedImageUrl;
+            }catch(err){
+                showToast('Không tải được ảnh: '+(err?.message||err),'error');
+                return;
+            }
+        }else payload.image_url=removeImage?null:(imageHidden?.value?.trim()||oldImageUrl||null);
+        if(!id) payload.published_at=new Date().toISOString();
+    }else{
+        payload.description=description;
+        payload.file_url=document.getElementById('publicEditUrl').value.trim()||null;
+    }
+    const q=id?supabase.from(table).update(payload).eq('id',id):supabase.from(table).insert(payload);
+    const {error}=await q;
+    if(error){
+        if(uploadedImageUrl) await removePublicPostStoredImage(uploadedImageUrl);
+        showToast('Lỗi lưu nội dung: '+error.message,'error');return;
+    }
+    if(type==='post' && oldImageUrl){
+        const imageHidden=document.getElementById('publicEditImageUrl');
+        const removeImage=imageHidden?.dataset?.remove==='true';
+        if((uploadedImageUrl && oldImageUrl!==uploadedImageUrl) || removeImage) await removePublicPostStoredImage(oldImageUrl);
+    }
+    showToast('Đã lưu nội dung website!');
+    await showPublicContentEditor(type);
+    await loadPublicWebsiteContent();
+}
+async function deletePublicContent(id,type){
+    if(!isAdmin()||!confirm('Xóa nội dung này?'))return;
+    const table=type==='post'?'app3_public_posts':'app3_public_documents';
+    let imageUrl='';
+    if(type==='post'){
+        const {data}=await supabase.from(table).select('image_url').eq('id',id).maybeSingle();
+        imageUrl=data?.image_url||'';
+    }
+    const {error}=await supabase.from(table).delete().eq('id',id);
+    if(error){showToast('Lỗi xóa: '+error.message,'error');return;}
+    if(imageUrl) await removePublicPostStoredImage(imageUrl);
+    showToast('Đã xóa nội dung.');
+    await showPublicContentEditor(type);
+    await loadPublicWebsiteContent();
+}
+
+// ============================================================
+// WEBSITE PUBLIC - BƯỚC 140
+// ============================================================
+function showPublicSite() {
+    const publicSite = document.getElementById('publicSite');
+    const loginScreen = document.getElementById('loginScreen');
+    const app = document.getElementById('app');
+    if (publicSite) publicSite.classList.remove('hidden');
+    if (loginScreen) {
+        loginScreen.classList.add('hidden');
+        loginScreen.style.display = 'none';
+    }
+    if (app) app.classList.add('hidden');
+    document.body.classList.remove('app-open');
+}
+
+function showLoginFromPublic() {
+    const loginScreen = document.getElementById('loginScreen');
+    if (!loginScreen) return;
+    loginScreen.classList.remove('hidden');
+    loginScreen.style.display = 'flex';
+    setTimeout(() => document.getElementById('loginUsername')?.focus(), 80);
+}
+
+function showAuthenticatedApp() {
+    const publicSite = document.getElementById('publicSite');
+    const loginScreen = document.getElementById('loginScreen');
+    const app = document.getElementById('app');
+    if (publicSite) publicSite.classList.add('hidden');
+    if (loginScreen) {
+        loginScreen.classList.add('hidden');
+        loginScreen.style.display = 'none';
+    }
+    if (app) app.classList.remove('hidden');
+    document.body.classList.add('app-open');
+}
+
+function initPublicWebsite() {
+    loadPublicWebsiteContent();
+    document.querySelectorAll('[data-open-login]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session) {
+                    const accessOk = await loadCurrentUserAccess();
+                    if (!accessOk) return;
+                    showAuthenticatedApp();
+                    await loadAllData();
+                    renderPage('dashboard');
+                    return;
+                }
+            } catch (e) {
+                console.warn('Không thể kiểm tra phiên đăng nhập:', e);
+            }
+            showLoginFromPublic();
+        });
+    });
+
+    document.getElementById('loginCloseBtn')?.addEventListener('click', showPublicSite);
+    document.getElementById('loginScreen')?.addEventListener('click', (e) => {
+        if (e.target?.id === 'loginScreen') showPublicSite();
+    });
+
+    const menuBtn = document.getElementById('siteMenuToggle');
+    const nav = document.getElementById('siteNav');
+    menuBtn?.addEventListener('click', () => nav?.classList.toggle('open'));
+    nav?.querySelectorAll('a').forEach(a => a.addEventListener('click', () => nav.classList.remove('open')));
+
+    // BƯỚC 142: Banner tự động 3 nội dung, vẫn giữ phong cách giao diện đã duyệt.
+    const heroSlides = [
+        {
+            eyebrow: '<i class="fas fa-sparkles"></i> Nền tảng quản lý giáo dục hiện đại',
+            title: 'HỆ THỐNG<br><span>QUẢN LÝ HỌC SINH</span>',
+            description: 'Giải pháp quản lý toàn diện, trực quan và hiệu quả; hỗ trợ giáo viên theo dõi học sinh, đánh giá, điểm danh và báo cáo trong một hệ thống thống nhất.'
+        },
+        {
+            eyebrow: '<i class="fas fa-chart-line"></i> Theo dõi học sinh khoa học và trực quan',
+            title: 'DỮ LIỆU<br><span>THỐNG NHẤT & DỄ THEO DÕI</span>',
+            description: 'Quản lý hồ sơ, điểm đánh giá, chuyên cần, nhận xét và báo cáo theo lớp - môn học với quy trình rõ ràng, thuận tiện cho giáo viên.'
+        },
+        {
+            eyebrow: '<i class="fas fa-user-shield"></i> Phân quyền theo đúng phạm vi giảng dạy',
+            title: 'AN TOÀN<br><span>LINH HOẠT & CHUYÊN NGHIỆP</span>',
+            description: 'Hỗ trợ Admin, Teacher và Viewer; kiểm soát truy cập theo lớp và môn học để dữ liệu được sử dụng đúng vai trò trong nhà trường.'
+        }
+    ];
+    let heroSlideIndex = 0;
+    let heroSlideTimer = null;
+    const heroCopy = document.querySelector('.hero-copy');
+    const heroEyebrow = document.getElementById('heroEyebrow');
+    const heroTitle = document.getElementById('heroTitle');
+    const heroDescription = document.getElementById('heroDescription');
+    const heroDots = [...document.querySelectorAll('[data-hero-slide]')];
+    const renderHeroSlide = (index) => {
+        heroSlideIndex = (index + heroSlides.length) % heroSlides.length;
+        const slide = heroSlides[heroSlideIndex];
+        heroCopy?.classList.add('hero-changing');
+        setTimeout(() => {
+            if (heroEyebrow) heroEyebrow.innerHTML = slide.eyebrow;
+            if (heroTitle) heroTitle.innerHTML = slide.title;
+            if (heroDescription) heroDescription.textContent = slide.description;
+            heroDots.forEach((dot, i) => dot.classList.toggle('active', i === heroSlideIndex));
+            heroCopy?.classList.remove('hero-changing');
+        }, 180);
+    };
+    const restartHeroTimer = () => {
+        clearInterval(heroSlideTimer);
+        heroSlideTimer = setInterval(() => renderHeroSlide(heroSlideIndex + 1), 6500);
+    };
+    document.getElementById('heroPrev')?.addEventListener('click', () => { renderHeroSlide(heroSlideIndex - 1); restartHeroTimer(); });
+    document.getElementById('heroNext')?.addEventListener('click', () => { renderHeroSlide(heroSlideIndex + 1); restartHeroTimer(); });
+    heroDots.forEach((dot, i) => dot.addEventListener('click', () => { renderHeroSlide(i); restartHeroTimer(); }));
+    restartHeroTimer();
+
+    // Menu active theo vị trí cuộn + nút về đầu trang.
+    const siteHeader = document.querySelector('.site-header');
+    const backToTop = document.getElementById('publicBackToTop');
+    const navLinks = [...document.querySelectorAll('.site-nav a[href^="#"]')];
+    const updatePublicScrollUI = () => {
+        const y = window.scrollY || 0;
+        siteHeader?.classList.toggle('scrolled', y > 10);
+        backToTop?.classList.toggle('show', y > 500);
+        let activeId = 'trang-chu';
+        navLinks.forEach(link => {
+            const id = link.getAttribute('href')?.slice(1);
+            const section = id ? document.getElementById(id) : null;
+            if (section && section.getBoundingClientRect().top <= 130) activeId = id;
+        });
+        navLinks.forEach(link => link.classList.toggle('active', link.getAttribute('href') === '#' + activeId));
+    };
+    window.addEventListener('scroll', updatePublicScrollUI, { passive: true });
+    updatePublicScrollUI();
+    backToTop?.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+
+    // Có thể lấy tên trường/năm học đã lưu cục bộ mà không cần mở quyền anon trên Supabase.
+    try {
+        const localSettings = JSON.parse(localStorage.getItem('settings') || '{}');
+        const schoolYear = localSettings.schoolYear || localSettings.school_year;
+        // BƯỚC 143: tên trường trên website công khai dùng nhận diện cố định đã duyệt.
+        // Năm học vẫn có thể lấy từ cài đặt cục bộ của ứng dụng.
+        if (schoolYear) {
+            const el = document.getElementById('publicSchoolYear');
+            if (el) el.textContent = schoolYear;
+        }
+    } catch (_) {}
+}
+
 function initLogin() {
     document.getElementById('loginForm').addEventListener('submit', async function(e) {
         e.preventDefault();
@@ -5480,8 +6053,9 @@ function initLogin() {
                 password: password
             });
             if (error) throw error;
-            document.getElementById('loginScreen').style.display = 'none';
-            document.getElementById('app').classList.remove('hidden');
+            const accessOk = await loadCurrentUserAccess();
+            if (!accessOk) return;
+            showAuthenticatedApp();
             if (document.getElementById('rememberMe').checked) {
                 localStorage.setItem('remembered', 'true');
             }
@@ -5522,17 +6096,33 @@ function initLogin() {
 
     document.getElementById('logoutBtn').addEventListener('click', async function() {
         await supabase.auth.signOut();
-        document.getElementById('loginScreen').style.display = 'flex';
-        document.getElementById('app').classList.add('hidden');
+        APP_STATE.currentUserId = null;
+        APP_STATE.currentUserEmail = '';
+        APP_STATE.currentUserDisplayName = '';
+        APP_STATE.currentUserRole = 'teacher';
+        APP_STATE.currentUserActive = false;
+        APP_STATE.currentUserAccessScope = 'all';
+        APP_STATE.currentUserAssignments = [];
+        APP_STATE.userAccessLoaded = false;
+        showPublicSite();
         showToast('Đã đăng xuất.', 'info');
     });
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // BƯỚC 141: Khi tải lại trang luôn ưu tiên hiển thị website công khai.
+    // Nếu phiên đăng nhập vẫn còn, người dùng chỉ cần bấm "Vào hệ thống" để vào app
+    // mà không phải đăng nhập lại. Không tự động che mất trang chủ.
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+        showPublicSite();
         if (session) {
-            document.getElementById('loginScreen').style.display = 'none';
-            document.getElementById('app').classList.remove('hidden');
-            loadAllData().then(() => renderPage('dashboard'));
+            await loadCurrentUserAccess();
+            const headerBtn = document.querySelector('.site-login-btn[data-open-login]');
+            if (headerBtn) headerBtn.innerHTML = '<i class="fas fa-right-to-bracket"></i> Vào hệ thống';
         }
+    });
+
+    document.getElementById('publicHomeBtn')?.addEventListener('click', () => {
+        showPublicSite();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     });
 }
 
@@ -5540,7 +6130,429 @@ function initLogin() {
 // 21. KHỞI ĐỘNG
 // ============================================================
 
+
+// ============================================================
+// 18. NÂNG CẤP QUẢN TRỊ: MÔN HỌC, BÁO CÁO, IMPORT, BACKUP, PHÂN QUYỀN
+// ============================================================
+async function saveSubjectConfig(subjectId) {
+    if (!requireEditPermission('thay đổi cấu hình môn học')) return;
+    const source = APP_STATE.allSubjectCatalog.find(s => s.id === subjectId);
+    if (!source) return;
+    const grades = [...document.querySelectorAll(`.subject-grade[data-subject-id="${subjectId}"]:checked`)].map(el => Number(el.value));
+    const active = !!document.getElementById(`subjectActive_${subjectId}`)?.checked;
+    if (!grades.length) { showToast('Mỗi môn phải áp dụng ít nhất một khối.', 'error'); return; }
+    try {
+        const { error } = await supabase.from('app3_subjects').update({ grades, active, updated_at: new Date().toISOString() }).eq('id', subjectId);
+        if (error) throw error;
+        source.grades = grades; source.active = active;
+        APP_STATE.subjectCatalog = APP_STATE.allSubjectCatalog.filter(s => s.active !== false);
+        const activeNames = APP_STATE.subjectCatalog.map(s => s.name);
+        ['currentSubject','studentSubject','statSubject','searchSubject'].forEach(key => {
+            if (APP_STATE[key] && !activeNames.includes(APP_STATE[key])) APP_STATE[key] = activeNames[0] || '';
+        });
+        showToast(`Đã cập nhật môn ${source.name}!`);
+        renderPage('settings');
+    } catch (err) { showToast('Không thể cập nhật môn học: ' + err.message, 'error'); }
+}
+
+function getAdvancedReportRows() {
+    const subject = document.getElementById('advancedReportSubject')?.value || APP_STATE.statSubject || APP_STATE.currentSubject;
+    const className = document.getElementById('advancedReportClass')?.value || '';
+    return APP_STATE.students.filter(s => !className || s.class === className).map(s => {
+        const sc = APP_STATE.scores[s.id]?.[subject] || {};
+        return {'Mã HS':s.id,'Họ tên':s.fullName,'Lớp':s.class,'Khối':s.grade,'Môn':subject,'Giữa kỳ 1':sc.giuaKy1||'','Cuối kỳ 1':sc.cuoiKy1??'','Giữa kỳ 2':sc.giuaKy2||'','Cuối kỳ 2':sc.cuoiKy2??'','Năng lực':sc.competence||'','Phẩm chất':sc.quality||''};
+    });
+}
+function exportAdvancedReport() {
+    const rows = getAdvancedReportRows();
+    if (!rows.length) { showToast('Không có dữ liệu để xuất.', 'warning'); return; }
+    const wb=XLSX.utils.book_new(), ws=XLSX.utils.json_to_sheet(rows); XLSX.utils.book_append_sheet(wb,ws,'Bao cao');
+    XLSX.writeFile(wb,`Bao_cao_${rows[0]['Môn']}_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+function downloadScoreImportTemplate() {
+    const subject = APP_STATE.currentSubject;
+    const className = document.getElementById('exportScoreClass')?.value || '';
+
+    if (!className) {
+        showToast('Vui lòng chọn lớp trước khi tải mẫu nhập điểm.', 'warning');
+        return;
+    }
+
+    const classStudents = APP_STATE.students.filter(s => s.class === className);
+    if (!classStudents.length) {
+        showToast(`Không có học sinh trong lớp ${className}.`, 'warning');
+        return;
+    }
+
+    const rows = classStudents.map(s => {
+        const sc = APP_STATE.scores[s.id]?.[subject] || {};
+        return {
+            'Mã HS': s.id,
+            'Họ tên': s.fullName,
+            'Lớp': s.class,
+            'Môn': subject,
+            'Giữa kỳ 1': sc.giuaKy1 || '',
+            'Cuối kỳ 1': sc.cuoiKy1 ?? '',
+            'Giữa kỳ 2': sc.giuaKy2 || '',
+            'Cuối kỳ 2': sc.cuoiKy2 ?? '',
+            'Năng lực': sc.competence || '',
+            'Phẩm chất': sc.quality || ''
+        };
+    });
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, subject.slice(0, 31));
+    const safeClass = className.replace(/[^a-zA-Z0-9À-ỹ_-]/g, '_');
+    const safeSubject = subject.replace(/[^a-zA-Z0-9À-ỹ_-]/g, '_');
+    XLSX.writeFile(wb, `Mau_nhap_diem_${safeSubject}_${safeClass}.xlsx`);
+}
+
+async function importScoresExcel(event) {
+    if (!requireEditPermission('import điểm')) { if (event?.target) event.target.value = ''; return; }
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+        const selectedClass = document.getElementById('exportScoreClass')?.value || '';
+        if (!selectedClass) {
+            throw new Error('Vui lòng chọn đúng lớp trước khi nhập điểm Excel.');
+        }
+
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type: 'array' });
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+        const subject = APP_STATE.currentSubject;
+        const subjectId = getSubjectId(subject);
+        const payload = [];
+        const invalidRows = [];
+
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const excelRow = i + 2;
+            const code = String(row['Mã HS'] || '').trim();
+            const rowClass = String(row['Lớp'] || '').trim();
+            const rowSubject = String(row['Môn'] || '').trim();
+            const st = APP_STATE.students.find(s => String(s.id) === code);
+
+            if (!code || !st?.db_uuid) {
+                invalidRows.push(`dòng ${excelRow}: Mã HS không hợp lệ`);
+                continue;
+            }
+            if (st.class !== selectedClass || rowClass !== selectedClass) {
+                invalidRows.push(`dòng ${excelRow}: học sinh/lớp không khớp lớp ${selectedClass}`);
+                continue;
+            }
+            if (rowSubject && rowSubject !== subject) {
+                invalidRows.push(`dòng ${excelRow}: môn trong file là ${rowSubject}, không phải ${subject}`);
+                continue;
+            }
+
+            payload.push({
+                student_id: st.db_uuid,
+                subject,
+                subject_id: subjectId,
+                giua_ky_1: String(row['Giữa kỳ 1'] || ''),
+                cuoi_ky_1: row['Cuối kỳ 1'] === '' ? null : Number(row['Cuối kỳ 1']),
+                giua_ky_2: String(row['Giữa kỳ 2'] || ''),
+                cuoi_ky_2: row['Cuối kỳ 2'] === '' ? null : Number(row['Cuối kỳ 2']),
+                competence: String(row['Năng lực'] || ''),
+                quality: String(row['Phẩm chất'] || '')
+            });
+        }
+
+        if (invalidRows.length) {
+            throw new Error(`File có ${invalidRows.length} dòng không hợp lệ. ${invalidRows.slice(0, 3).join('; ')}${invalidRows.length > 3 ? '; ...' : ''}`);
+        }
+        if (!payload.length) throw new Error('Không tìm thấy dữ liệu điểm hợp lệ trong file.');
+
+        const { error } = await supabase
+            .from('app3_scores')
+            .upsert(payload, { onConflict: 'student_id,subject' });
+        if (error) throw error;
+
+        showToast(`Đã nhập ${payload.length} dòng điểm môn ${subject} - lớp ${selectedClass}!`);
+        await loadAllData();
+        renderPage('scores');
+    } catch (err) {
+        showToast('Lỗi nhập điểm Excel: ' + err.message, 'error');
+    } finally {
+        event.target.value = '';
+    }
+}
+const BACKUP_TABLES=['app3_subjects','app3_classes','app3_students','app3_scores','app3_attendance','app3_rewards','app3_disciplines','app3_learning_comments','app3_files','app3_settings','app3_public_posts','app3_public_documents'];
+async function backupAllData(){
+    try{const backup={format:'QLHS_BACKUP_V1',created_at:new Date().toISOString(),tables:{}};for(const table of BACKUP_TABLES){const {data,error}=await supabase.from(table).select('*');if(error)throw new Error(`${table}: ${error.message}`);backup.tables[table]=data||[];}const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`QLHS_backup_${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(a.href);showToast('Sao lưu dữ liệu thành công!');}catch(err){showToast('Lỗi sao lưu: '+err.message,'error');}
+}
+function validateBackupFile(backup) {
+    if (!backup || backup.format !== 'QLHS_BACKUP_V1' || !backup.tables || typeof backup.tables !== 'object') {
+        throw new Error('File sao lưu không đúng định dạng QLHS_BACKUP_V1.');
+    }
+    const missing = BACKUP_TABLES.filter(table => !Array.isArray(backup.tables[table]));
+    if (missing.length) throw new Error(`File sao lưu thiếu dữ liệu bảng: ${missing.join(', ')}`);
+    return BACKUP_TABLES.map(table => `${table}: ${backup.tables[table].length}`).join('\n');
+}
+async function mergeBackupData(event){
+    if (!requireEditPermission('hợp nhất dữ liệu sao lưu')) { if (event?.target) event.target.value = ''; return; }
+    const file=event.target.files?.[0];if(!file)return;
+    try{
+        const backup=JSON.parse(await file.text());
+        const summary=validateBackupFile(backup);
+        const ok=await showModal('Xác nhận hợp nhất dữ liệu',`File: ${file.name}\nTạo lúc: ${backup.created_at||'Không rõ'}\n\n${summary}\n\nDữ liệu trong file sẽ được ghi đè/thêm theo khóa hiện có. Dữ liệu khác KHÔNG bị xóa.`,`Hợp nhất`,`Hủy`);
+        if(!ok)return;
+        const order=['app3_classes','app3_students','app3_subjects','app3_scores','app3_attendance','app3_rewards','app3_disciplines','app3_learning_comments','app3_files','app3_settings','app3_public_posts','app3_public_documents'];
+        for(const table of order){const rows=backup.tables[table]||[];if(!rows.length)continue;const opts=table==='app3_scores'?{onConflict:'student_id,subject'}:undefined;const q=opts?supabase.from(table).upsert(rows,opts):supabase.from(table).upsert(rows);const {error}=await q;if(error)throw new Error(`${table}: ${error.message}`);}
+        showToast('Hợp nhất dữ liệu thành công!');await loadAllData();renderPage('settings');
+    }catch(err){showToast('Lỗi hợp nhất dữ liệu: '+err.message,'error');}finally{event.target.value='';}
+}
+async function fullRestoreBackupData(event){
+    if (!requireEditPermission('khôi phục toàn bộ dữ liệu')) { if (event?.target) event.target.value = ''; return; }
+    const file=event.target.files?.[0];if(!file)return;
+    try{
+        const backup=JSON.parse(await file.text());
+        const summary=validateBackupFile(backup);
+        const ok=await showModal('CẢNH BÁO: Khôi phục toàn bộ',`File: ${file.name}\nTạo lúc: ${backup.created_at||'Không rõ'}\n\n${summary}\n\nCác bảng nghiệp vụ sẽ trở về đúng snapshot này. Bản ghi tạo sau thời điểm backup và không có trong file SẼ BỊ XÓA. Thao tác được chạy trong một transaction Supabase.`,`Khôi phục toàn bộ`,`Hủy`);
+        if(!ok)return;
+        const {data,error}=await supabase.rpc('app3_full_restore_backup',{p_backup:backup,p_confirmation:'FULL_RESTORE'});
+        if(error)throw error;
+        showToast('Khôi phục toàn bộ thành công!');
+        await loadAllData();renderPage('settings');
+        console.log('FULL RESTORE RESULT:',data);
+    }catch(err){showToast('Lỗi khôi phục toàn bộ: '+err.message,'error');}finally{event.target.value='';}
+}
+// Tương thích với tên hàm cũ nếu có nơi khác còn gọi.
+const restoreAllData = mergeBackupData;
+function escapeRoleHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function getAssignmentPairKey(subjectId, classId) {
+    return `${subjectId}::${classId}`;
+}
+
+function renderAssignmentMatrix(userId, assignmentRows = []) {
+    const selected = new Set(
+        assignmentRows
+            .filter(row => row.active !== false)
+            .map(row => getAssignmentPairKey(row.subject_id, row.class_id))
+    );
+
+    const subjects = (APP_STATE.subjectCatalog || []).filter(subject => subject.active !== false);
+    const classes = APP_STATE.classes || [];
+
+    if (!subjects.length || !classes.length) {
+        return '<p class="text-muted">Chưa có đủ danh mục môn học hoặc lớp để phân công.</p>';
+    }
+
+    const header = classes.map(cls => `<th style="text-align:center;white-space:nowrap">${escapeRoleHtml(cls.name)}</th>`).join('');
+    const rows = subjects.map(subject => {
+        const allowedGrades = Array.isArray(subject.grades) ? subject.grades.map(String) : [];
+        const cells = classes.map(cls => {
+            const classGrade = String(cls.grade ?? '');
+            const validPair = !allowedGrades.length || allowedGrades.includes(classGrade);
+            if (!validPair) {
+                return '<td style="text-align:center"><span class="text-muted" title="Môn này không áp dụng cho khối của lớp">—</span></td>';
+            }
+            const key = getAssignmentPairKey(subject.id, cls.id);
+            const checked = selected.has(key) ? 'checked' : '';
+            return `<td style="text-align:center"><input type="checkbox" data-assignment-user="${userId}" data-subject-id="${subject.id}" data-class-id="${cls.id}" ${checked} title="${escapeRoleHtml(subject.name)} - ${escapeRoleHtml(cls.name)}"></td>`;
+        }).join('');
+        return `<tr><td style="white-space:nowrap"><strong>${escapeRoleHtml(subject.name)}</strong></td>${cells}</tr>`;
+    }).join('');
+
+    return `
+        <div class="assignment-toolbar" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+            <strong>Phân công Môn – Lớp</strong>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="setAllAssignments('${userId}', true)">Chọn tất cả hợp lệ</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="setAllAssignments('${userId}', false)">Bỏ chọn</button>
+            <span class="text-muted" style="font-size:.82rem">Dấu — là cặp môn/lớp không thuộc khối áp dụng của môn.</span>
+        </div>
+        <div class="table-wrapper" style="max-height:420px;overflow:auto">
+            <table class="assignment-matrix" style="font-size:.82rem">
+                <thead><tr><th style="position:sticky;left:0;z-index:2">Môn học</th>${header}</tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+}
+
+function toggleAssignmentPanel(userId) {
+    const row = document.getElementById(`assignmentRow_${userId}`);
+    if (!row) return;
+    row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+
+function handleAccessScopeChange(userId) {
+    const scope = document.getElementById(`scope_${userId}`)?.value || 'all';
+    const button = document.getElementById(`assignmentBtn_${userId}`);
+    const row = document.getElementById(`assignmentRow_${userId}`);
+    if (button) button.disabled = scope !== 'assigned';
+    if (row && scope !== 'assigned') row.style.display = 'none';
+}
+
+function setAllAssignments(userId, checked) {
+    document.querySelectorAll(`input[data-assignment-user="${userId}"]`).forEach(input => {
+        input.checked = checked;
+    });
+}
+
+async function loadUserRolePanel(){
+    const panel = document.getElementById('userRolePanel');
+    if (!panel) return;
+    try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+            panel.innerHTML = '<p class="text-muted">Chưa xác định người dùng đăng nhập.</p>';
+            return;
+        }
+
+        const { data, error } = await supabase
+            .from('app3_user_roles')
+            .select('user_id,email,display_name,role,active,access_scope')
+            .order('email');
+        if (error) throw error;
+
+        const roles = data || [];
+        const me = roles.find(r => r.user_id === user.id);
+        if (me) {
+            APP_STATE.currentUserRole = me.role || 'teacher';
+            APP_STATE.currentUserActive = me.active !== false;
+            APP_STATE.currentUserId = me.user_id;
+            APP_STATE.currentUserEmail = me.email || user.email || '';
+            APP_STATE.currentUserDisplayName = (me.display_name || '').trim() || APP_STATE.currentUserEmail;
+            APP_STATE.currentUserAccessScope = me.access_scope === 'assigned' ? 'assigned' : 'all';
+            APP_STATE.userAccessLoaded = true;
+            updateCurrentUserHeader();
+        }
+
+        if (APP_STATE.currentUserRole !== 'admin') {
+            panel.innerHTML = `<p>Vai trò hiện tại: <strong>${escapeRoleHtml(APP_STATE.currentUserRole)}</strong></p><p class="text-muted">Chỉ tài khoản admin được thay đổi phân quyền và phân công Môn – Lớp.</p>`;
+            return;
+        }
+
+        const { data: assignmentData, error: assignmentError } = await supabase
+            .from('app3_teacher_assignments')
+            .select('id,user_id,subject_id,class_id,active');
+        if (assignmentError) throw assignmentError;
+        const assignments = assignmentData || [];
+
+        const body = roles.map(r => {
+            const scope = r.access_scope === 'assigned' ? 'assigned' : 'all';
+            const userAssignments = assignments.filter(a => a.user_id === r.user_id);
+            return `
+                <tr>
+                    <td>${escapeRoleHtml(r.email || '')}</td>
+                    <td><input type="text" id="roleName_${r.user_id}" value="${escapeRoleHtml(r.display_name || '')}" style="min-width:150px"></td>
+                    <td>
+                        <select id="role_${r.user_id}">
+                            <option value="admin" ${r.role === 'admin' ? 'selected' : ''}>admin</option>
+                            <option value="teacher" ${r.role === 'teacher' ? 'selected' : ''}>teacher</option>
+                            <option value="viewer" ${r.role === 'viewer' ? 'selected' : ''}>viewer</option>
+                        </select>
+                    </td>
+                    <td>
+                        <select id="scope_${r.user_id}" onchange="handleAccessScopeChange('${r.user_id}')">
+                            <option value="all" ${scope === 'all' ? 'selected' : ''}>Tất cả</option>
+                            <option value="assigned" ${scope === 'assigned' ? 'selected' : ''}>Theo phân công</option>
+                        </select>
+                    </td>
+                    <td style="text-align:center"><input type="checkbox" id="roleActive_${r.user_id}" ${r.active !== false ? 'checked' : ''}></td>
+                    <td style="white-space:nowrap">
+                        <button id="assignmentBtn_${r.user_id}" class="btn btn-secondary btn-sm" onclick="toggleAssignmentPanel('${r.user_id}')" ${scope !== 'assigned' ? 'disabled' : ''}><i class="fas fa-chalkboard-teacher"></i> Phân công</button>
+                        <button class="btn btn-primary btn-sm" onclick="saveUserRole('${r.user_id}')"><i class="fas fa-save"></i> Lưu</button>
+                    </td>
+                </tr>
+                <tr id="assignmentRow_${r.user_id}" style="display:none">
+                    <td colspan="6" style="padding:12px;background:rgba(127,127,127,.06)">${renderAssignmentMatrix(r.user_id, userAssignments)}</td>
+                </tr>`;
+        }).join('');
+
+        panel.innerHTML = `
+            <p>Vai trò hiện tại: <strong>${escapeRoleHtml(APP_STATE.currentUserRole)}</strong></p>
+            <p class="text-muted" style="font-size:.84rem">Phạm vi <strong>Tất cả</strong>: được truy cập toàn bộ môn/lớp theo vai trò. <strong>Theo phân công</strong>: chỉ các cặp Môn – Lớp được Admin chọn. Bước này mới quản lý cấu hình; bộ lọc nghiệp vụ sẽ được áp dụng ở bước sau.</p>
+            <div class="table-wrapper">
+                <table>
+                    <thead><tr><th>Email</th><th>Tên hiển thị</th><th>Vai trò</th><th>Phạm vi</th><th>Hoạt động</th><th>Thao tác</th></tr></thead>
+                    <tbody>${body}</tbody>
+                </table>
+            </div>`;
+    } catch(err) {
+        console.error('LOAD USER ROLE PANEL ERROR:', err);
+        panel.innerHTML = `<p class="text-muted">Không tải được cấu hình phân quyền: ${escapeRoleHtml(err.message || err)}</p>`;
+    }
+}
+
+async function saveUserRole(userId){
+    if (APP_STATE.currentUserRole !== 'admin') return;
+    try {
+        const role = document.getElementById(`role_${userId}`)?.value || 'teacher';
+        const active = !!document.getElementById(`roleActive_${userId}`)?.checked;
+        const displayName = document.getElementById(`roleName_${userId}`)?.value.trim() || '';
+        const accessScope = document.getElementById(`scope_${userId}`)?.value === 'assigned' ? 'assigned' : 'all';
+
+        const { error: roleError } = await supabase
+            .from('app3_user_roles')
+            .update({
+                role,
+                active,
+                display_name: displayName,
+                access_scope: accessScope,
+                updated_at: new Date().toISOString()
+            })
+            .eq('user_id', userId);
+        if (roleError) throw roleError;
+
+        if (accessScope === 'assigned') {
+            const selected = Array.from(document.querySelectorAll(`input[data-assignment-user="${userId}"]:checked`))
+                .map(input => ({
+                    user_id: userId,
+                    subject_id: input.dataset.subjectId,
+                    class_id: input.dataset.classId,
+                    active: true,
+                    updated_at: new Date().toISOString()
+                }));
+
+            const { error: deleteError } = await supabase
+                .from('app3_teacher_assignments')
+                .delete()
+                .eq('user_id', userId);
+            if (deleteError) throw deleteError;
+
+            if (selected.length) {
+                const { error: insertError } = await supabase
+                    .from('app3_teacher_assignments')
+                    .insert(selected);
+                if (insertError) throw insertError;
+            }
+        }
+
+        if (userId === APP_STATE.currentUserId) {
+            APP_STATE.userAccessLoaded = false;
+            await loadCurrentUserAccess(true);
+        }
+
+        showToast(accessScope === 'assigned' ? 'Đã lưu vai trò và phân công Môn – Lớp!' : 'Đã lưu vai trò với phạm vi Tất cả!');
+        await loadUserRolePanel();
+    } catch(err) {
+        console.error('SAVE USER ROLE ERROR:', err);
+        showToast('Lỗi phân quyền/phân công: ' + err.message, 'error');
+    }
+}
+
+window.loadCurrentUserAccess = loadCurrentUserAccess;
+window.isAdmin = isAdmin;
+window.isTeacher = isTeacher;
+window.isViewer = isViewer;
+window.canManageSystem = canManageSystem;
+window.canEditData = canEditData;
+window.isActiveUser = isActiveUser;
+
 document.addEventListener('DOMContentLoaded', function() {
+    initPublicWebsite();
     initLogin();
     initNavigation();
 
@@ -5550,7 +6562,357 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     window.openAddStudent = openAddStudent;
-    window.editStudent = editStudent;
+    
+// ============================================================
+// BƯỚC 148 - ĐỒNG BỘ EXCEL THEO CÁC MẪU VNEDU ĐƯỢC CUNG CẤP
+// ============================================================
+const VNEDU_CLASS_PREFIX = {"3C": "5004506241", "3A1": "5004506161", "3A2": "5004506961", "3B1": "5004506201", "3B2": "5004506221", "4B": "5004506301", "4C": "5004506341", "4A1": "5004506261", "4A2": "5004506281", "5B": "5004506401", "5C": "5004506441", "5A1": "5004506361", "5A2": "5004506381"};
+function parseVnEduDate(v){
+    if(!v) return '';
+    if(typeof v==='number'){ const d=new Date((v-25569)*86400*1000); return isNaN(d)?'':d.toISOString().slice(0,10); }
+    const s=String(v).trim(),m=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+    if(m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+    const d=new Date(s); return isNaN(d)?'':d.toISOString().slice(0,10);
+}
+function splitVnEduName(n){ const p=normalizeVnEduText(n).split(' ').filter(Boolean); return p.length<2?[n,'']:[p.slice(0,-1).join(' '),p.at(-1)]; }
+const VNEDU_SUBJECT_MAP = {
+    'tieng_viet': { name: 'Tiếng Việt', code: '50' },
+    'toan': { name: 'Toán', code: '51' },
+    'khoa_hoc': { name: 'Khoa học', code: '52' },
+    'lich_su_dia_li': { name: 'Lịch sử và Địa lí', code: '53' },
+    'dao_duc': { name: 'Đạo đức', code: '56' },
+    'tu_nhien_xa_hoi': { name: 'Tự nhiên và Xã hội', code: '57' },
+    'am_nhac': { name: 'Âm nhạc', code: '58' },
+    'mi_thuat': { name: 'Mĩ thuật', code: '59' },
+    'giao_duc_the_chat': { name: 'Giáo dục thể chất', code: '97' },
+    'hoat_dong_trai_nghiem': { name: 'Hoạt động trải nghiệm', code: '98' },
+    'cong_nghe': { name: 'Công nghệ', code: '107' },
+    'ngoai_ngu_1': { name: 'Ngoại ngữ 1', code: '110' },
+    'tin_hoc': { name: 'Tin học', code: '113' }
+};
+const VNEDU_SUBJECT_BY_CODE = Object.fromEntries(Object.values(VNEDU_SUBJECT_MAP).map(x => [x.code, x.name]));
+function getVnEduSubjectEntry(subject){
+    const raw=normalizeVnEduText(subject).toLowerCase();
+    const direct=Object.values(VNEDU_SUBJECT_MAP).find(x=>normalizeVnEduText(x.name).toLowerCase()===raw);
+    if(direct)return direct;
+    const id=String(subject||'').trim();
+    if(VNEDU_SUBJECT_MAP[id])return VNEDU_SUBJECT_MAP[id];
+    return null;
+}
+function getVnEduSubjectCode(subject){ return getVnEduSubjectEntry(subject)?.code||''; }
+function getVnEduSubjectNameByCode(code){ return VNEDU_SUBJECT_BY_CODE[String(code)]||''; }
+function getVnEduPeriodMeta(p){ return {
+ gk1:{semester:'1',token:'gk1',title:'HỌC KỲ 1 - GIỮA KỲ 1',rating:'XL GK1'},
+ ck1:{semester:'1',token:'ck1',title:'HỌC KỲ 1 - CUỐI KỲ 1',score:'KT CK1',rating:'XL CK1'},
+ gk2:{semester:'2',token:'gk2',title:'HỌC KỲ 2 - GIỮA KỲ 2',rating:'XL GK2'},
+ ck2:{semester:'2',token:'ck2',title:'HỌC KỲ 2 - CUỐI KỲ 2',score:'KT CK2',rating:'XL CK2',retestScore:'KT CK2 (Sau thi lại)',retestRating:'XL CK2 (Sau thi lại)'}
+}[p]; }
+
+async function importVnEduStudentWorkbook(event){
+ if(!requireEditPermission('nhập danh sách học sinh theo mẫu VNEDU')){ if(event?.target)event.target.value=''; return; }
+ const file=event?.target?.files?.[0]; if(!file)return;
+ try{
+  const wb=XLSX.read(new Uint8Array(await file.arrayBuffer()),{type:'array',cellDates:false}), parsed=[];
+  for(const sn of wb.SheetNames){
+   if(/bia/i.test(sn))continue;
+   const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:'',raw:true});
+   let cls=''; for(const row of rows.slice(0,8)){ const m=row.map(normalizeVnEduText).join(' ').match(/Lớp\s*:\s*([1-5][A-Za-z0-9]+)/i); if(m){cls=m[1].toUpperCase();break;} }
+   if(!cls&&/^[1-5][A-Za-z0-9]+$/i.test(sn))cls=sn.toUpperCase(); if(!cls)continue;
+   const h=rows.findIndex(row=>row.some(v=>/Mã học sinh/i.test(normalizeVnEduText(v)))); if(h<0)continue;
+   for(let r=h+1;r<rows.length;r++){ const row=rows[r],code=normalizeVnEduText(row[1]),name=normalizeVnEduText(row[2]);
+    if(!/^\d+$/.test(code)||!name)continue;
+    parsed.push({student_code:code,full_name:name,dob:parseVnEduDate(row[4])||null,gender:normalizeVnEduText(row[5]).toLowerCase()==='x'?'Nữ':'Nam',class_name:cls,grade:cls[0]});
+   }
+  }
+  if(!parsed.length)throw new Error('Không tìm thấy học sinh đúng cấu trúc file mẫu.');
+  for(const cls of [...new Set(parsed.map(x=>x.class_name))]){
+   if(!APP_STATE.classes.some(c=>c.name===cls)){ const {data,error}=await supabase.from('app3_classes').insert([{name:cls,grade:cls[0],class_code:'L'+cls,teacher:APP_STATE.currentUserDisplayName||'Giáo viên'}]).select().single(); if(error)throw error; APP_STATE.classes.push(data); APP_STATE.classMap[cls]=data.id; }
+  }
+  let ok=0; for(const st of parsed){ const classId=APP_STATE.classes.find(c=>c.name===st.class_name)?.id;
+   const payload={student_code:st.student_code,full_name:st.full_name,dob:st.dob,gender:st.gender,class_id:classId,grade:st.grade,status:'Đang học'};
+   const existing=APP_STATE.students.find(s=>s.id===st.student_code);
+   const q=existing?supabase.from('app3_students').update(payload).eq('student_code',st.student_code):supabase.from('app3_students').insert([{...payload,avatar_url:DEFAULT_AVATAR}]);
+   const {error}=await q;if(error)throw error;ok++;
+  }
+  await loadAllData();
+  renderPage('students');
+  showToast(`Đã đồng bộ ${ok} học sinh từ file mẫu VNEDU và tải lại dữ liệu thành công.`,'success');
+ }catch(err){console.error(err);showToast('Lỗi nhập danh sách VNEDU: '+err.message,'error');}finally{if(event?.target)event.target.value='';}
+}
+
+// Danh sách 20 sheet đúng theo file gốc "Xuất các môn tôi dạy" mà người dùng cung cấp.
+// N = Công nghệ (107), H = Tin học (113). Thứ tự được giữ nguyên như VNEDU.
+const VNEDU_TEACHING_PAIRS = [
+    ['Công nghệ','3C'], ['Công nghệ','3A1'], ['Công nghệ','3A2'], ['Công nghệ','3B1'], ['Công nghệ','3B2'],
+    ['Tin học','3C'], ['Tin học','3B1'], ['Tin học','3B2'],
+    ['Công nghệ','4B'], ['Công nghệ','4C'], ['Công nghệ','4A1'], ['Công nghệ','4A2'],
+    ['Tin học','4B'], ['Tin học','4C'],
+    ['Công nghệ','5B'], ['Công nghệ','5C'], ['Công nghệ','5A1'], ['Công nghệ','5A2'],
+    ['Tin học','5B'], ['Tin học','5C']
+];
+
+function getVnEduSchoolYearParts(){
+    const raw=normalizeVnEduText(APP_STATE.settings?.schoolYear||'2026-2027');
+    const m=raw.match(/(20\d{2})\D+(20\d{2})/);
+    return m?{start:m[1],end:m[2]}:{start:'2026',end:'2027'};
+}
+function getVnEduSheetName(subject,cls){
+    const code=getVnEduSubjectCode(subject)||'MON';
+    return `M${code}(${String(cls||'').toLowerCase()}`.slice(0,31);
+}
+function getVnEduSubjectTitle(subject){
+    const name=getVnEduSubjectEntry(subject)?.name||normalizeVnEduText(subject)||'MÔN HỌC';
+    return name.toLocaleUpperCase('vi-VN');
+}
+function getVnEduClassFromPrefix(prefix){
+    return Object.entries(VNEDU_CLASS_PREFIX).find(([,p])=>String(p)===String(prefix))?.[0]||'';
+}
+function parseVnEduTechnicalCode(value){
+    const s=normalizeVnEduText(value);
+    const m=s.match(/^(\d+)-(50|51|52|53|56|57|58|59|97|98|107|110|113)-(1|2)-(gk1|ck1|gk2|ck2)-(20\d{2})$/i);
+    if(!m)return null;
+    const cls=getVnEduClassFromPrefix(m[1]);
+    const subject=getVnEduSubjectNameByCode(m[2]);
+    if(!subject)return null;
+    return {raw:s,prefix:m[1],subjectCode:m[2],subject,semester:m[3],period:m[4].toLowerCase(),year:m[5],cls};
+}
+function getVnEduStudentScores(student,subject,period){
+    const sc=APP_STATE.scores?.[student.id]?.[subject]||{};
+    if(period==='gk1') return {comment:sc.nhanXetGk1||'',rating:toVnEduRating(sc.giuaKy1||'')};
+    if(period==='ck1') return {comment:sc.nhanXetCk1||'',score:sc.cuoiKy1??'',rating:toVnEduRating(sc.xepLoaiCuoiKy1||'')};
+    if(period==='gk2') return {comment:sc.nhanXetGk2||'',rating:toVnEduRating(sc.giuaKy2||'')};
+    return {comment:sc.nhanXetCk2||'',score:sc.cuoiKy2??'',rating:toVnEduRating(sc.xepLoaiCuoiKy2||''),retestScore:sc.cuoiKy2SauThiLai??'',retestRating:toVnEduRating(sc.xepLoaiCuoiKy2SauThiLai||'')};
+}
+function styleVnEduWorksheet(ws,period,lastRow){
+    const thin={style:'thin',color:{argb:'FF000000'}};
+    const centered={vertical:'middle',horizontal:'center',wrapText:true};
+    const left={vertical:'middle',horizontal:'left',wrapText:true};
+    // Kích thước cột lấy theo workbook VNEDU gốc đã cung cấp.
+    ws.getColumn(1).width=5.28; ws.getColumn(2).width=8.96; ws.getColumn(3).width=19.14; ws.getColumn(4).width=13.85; ws.getColumn(5).width=39.99;
+    if(period==='gk1'||period==='gk2'){ws.getColumn(6).width=11.99;ws.getColumn(7).width=14.28;ws.getColumn(8).width=14.7;}
+    else if(period==='ck1'){ws.getColumn(6).width=11.99;ws.getColumn(7).width=11.99;ws.getColumn(8).width=14.7;}
+    else {for(let c=6;c<=9;c++)ws.getColumn(c).width=11.99;}
+    ws.getColumn(9).width=ws.getColumn(9).width||11.42; ws.getColumn(10).width=11.42; ws.getColumn(11).width=11.42;
+    ws.getRow(1).height=18.75; ws.getRow(2).height=15; ws.getRow(3).height=12.75; ws.getRow(4).height=32.25; ws.getRow(5).height=15.75; ws.getRow(6).height=12.75; ws.getRow(7).height=27.75;
+    for(let r=8;r<=lastRow;r++)ws.getRow(r).height=12.8;
+    ['A1','E1'].forEach(a=>{ws.getCell(a).font={name:'Arial',size:10};ws.getCell(a).alignment=centered;});
+    ['A2','E2'].forEach(a=>{ws.getCell(a).font={name:'Arial',size:10,bold:true};ws.getCell(a).alignment=centered;});
+    ws.getCell('A4').font={name:'Arial',size:11,bold:true}; ws.getCell('A4').alignment=centered;
+    ws.getCell('A5').font={name:'Arial',size:10,bold:true}; ws.getCell('A5').alignment=centered;
+    ws.getCell('B6').font={name:'Arial',size:8,color:{argb:'FF000000'}}; ws.getCell('B6').alignment=left; ws.getCell('B6').numFmt='@';
+    // Tạo vùng A:K như file gốc; chỉ bảng dữ liệu thật có border.
+    for(let r=7;r<=lastRow;r++)for(let c=1;c<=11;c++){
+        const cell=ws.getCell(r,c); cell.font={name:'Arial',size:10,bold:r===7}; cell.alignment=(r===7||c===1||c===2||c>=6)?centered:left;
+    }
+    const dataLastCol=period==='ck2'?9:period==='ck1'?7:6;
+    for(let r=7;r<=lastRow;r++)for(let c=1;c<=dataLastCol;c++)ws.getCell(r,c).border={top:thin,left:thin,bottom:thin,right:thin};
+    ws.pageSetup={orientation:'landscape',paperSize:9,fitToPage:true,fitToWidth:1,fitToHeight:0,margins:{left:0.25,right:0.25,top:0.4,bottom:0.4,header:0.15,footer:0.15}};
+    ws.views=[{showGridLines:true}];
+}
+function buildVnEduWorksheet(wb,cls,subject,period){
+    const subjectCode=getVnEduSubjectCode(subject),prefix=VNEDU_CLASS_PREFIX[cls],meta=getVnEduPeriodMeta(period);
+    if(!subjectCode||!prefix||!meta)return null;
+    const students=APP_STATE.students.filter(s=>s.class===cls).slice().sort((a,b)=>String(a.id||'').localeCompare(String(b.id||''),undefined,{numeric:true}));
+    if(!students.length)return null;
+    const year=getVnEduSchoolYearParts();
+    const ws=wb.addWorksheet(getVnEduSheetName(subject,cls));
+    ws.mergeCells('A1:D1'); ws.getCell('A1').value='ỦY BAN NHÂN DÂN ĐẶC KHU KIÊN HẢI';
+    ws.mergeCells('E1:G1'); ws.getCell('E1').value='CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM';
+    ws.mergeCells('A2:D2'); ws.getCell('A2').value='TH-THCS & THPT LẠI SƠN';
+    ws.mergeCells('E2:G2'); ws.getCell('E2').value='Độc lập - Tự do - Hạnh phúc';
+    ws.mergeCells('A4:G4'); ws.getCell('A4').value=`BẢNG ĐIỂM CHI TIẾT - MÔN ${getVnEduSubjectTitle(subject)} - ${meta.title} - NĂM HỌC ${year.start} - ${year.end}`;
+    ws.mergeCells('A5:G5'); ws.getCell('A5').value=`Khối ${cls[0]} - Lớp ${cls}`;
+    ws.getCell('B6').value=`${prefix}-${subjectCode}-${meta.semester}-${meta.token}-${year.start}`;
+    ws.mergeCells('C7:D7');
+    ws.getCell('A7').value='STT'; ws.getCell('B7').value='Mã học sinh'; ws.getCell('C7').value='Họ và tên'; ws.getCell('E7').value='Nhận xét';
+    if(period==='gk1')ws.getCell('F7').value='XL GK1';
+    if(period==='ck1'){ws.getCell('F7').value='KT CK1';ws.getCell('G7').value='XL CK1';}
+    if(period==='gk2')ws.getCell('F7').value='XL GK2';
+    if(period==='ck2'){ws.getCell('F7').value='KT CK2';ws.getCell('G7').value='XL CK2';ws.getCell('H7').value='KT CK2 (Sau thi lại)';ws.getCell('I7').value='XL CK2 (Sau thi lại)';}
+    students.forEach((s,i)=>{
+        const r=8+i,[ho,ten]=splitVnEduName(s.fullName),v=getVnEduStudentScores(s,subject,period);
+        ws.getCell(r,1).value=i+1; ws.getCell(r,2).value=String(s.id||''); ws.getCell(r,2).numFmt='@'; ws.getCell(r,3).value=ho; ws.getCell(r,4).value=ten; ws.getCell(r,5).value=v.comment||'';
+        if(period==='gk1'||period==='gk2')ws.getCell(r,6).value=v.rating||'';
+        if(period==='ck1'){ws.getCell(r,6).value=v.score;ws.getCell(r,7).value=v.rating||'';}
+        if(period==='ck2'){ws.getCell(r,6).value=v.score;ws.getCell(r,7).value=v.rating||'';ws.getCell(r,8).value=v.retestScore;ws.getCell(r,9).value=v.retestRating||'';}
+    });
+    styleVnEduWorksheet(ws,period,7+students.length);
+    return ws;
+}
+async function downloadVnEduWorkbook(wb,filename,successMessage){
+    const buf=await wb.xlsx.writeBuffer();
+    const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+    a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1200);
+    showToast(successMessage,'success');
+}
+
+async function exportVnEduScores(){
+    const cls=document.getElementById('exportScoreClass')?.value||document.getElementById('scoreClass')?.value||'',period=document.getElementById('vneduPeriod')?.value||'gk1',subject=APP_STATE.currentSubject;
+    if(!cls){showToast('Hãy chọn lớp trước khi xuất VNEDU.','warning');return;}
+    if(!getVnEduSubjectCode(subject)){showToast('Môn đang chọn chưa có mã VNEDU đã xác minh.','warning');return;}
+    if(!VNEDU_CLASS_PREFIX[cls]){showToast(`Chưa có mã VNEDU của lớp ${cls} trong file mẫu.`,'warning');return;}
+    if(typeof ExcelJS==='undefined'){showToast('Chưa tải được thư viện ExcelJS. Hãy kiểm tra Internet và tải lại trang.','error');return;}
+    try{
+        const wb=new ExcelJS.Workbook();wb.creator='VNEDU compatible - TH-THCS & THPT Lại Sơn';wb.created=new Date();
+        if(!buildVnEduWorksheet(wb,cls,subject,period))throw new Error('Không tạo được sheet VNEDU cho lớp đã chọn.');
+        const y=getVnEduSchoolYearParts();
+        await downloadVnEduWorkbook(wb,`VNEDU_${getVnEduSubjectCode(subject)}_${cls}_${period}_${y.start}.xlsx`,`Đã xuất VNEDU ${period.toUpperCase()} lớp ${cls} theo cấu trúc file gốc.`);
+    }catch(err){console.error(err);showToast('Lỗi xuất VNEDU: '+err.message,'error');}
+}
+
+function getVnEduTeachingPairsForCurrentUser(){
+    // BƯỚC 148.5.3: KHÔNG cố định số sheet. Nguồn ưu tiên là phân công môn-lớp của tài khoản hiện tại.
+    // Áp dụng cho cả admin nếu admin cũng có phân công riêng; teacher/viewer assigned hoạt động như trước.
+    const assignments=Array.isArray(APP_STATE.currentUserAssignments)?APP_STATE.currentUserAssignments:[];
+    if(assignments.length){
+        const bySubjectId=new Map((APP_STATE.subjectCatalog||[]).map(x=>[String(x.id),x.name]));
+        const byClassId=new Map((APP_STATE.allClasses?.length?APP_STATE.allClasses:APP_STATE.classes||[]).map(x=>[String(x.id),x.name]));
+        const pairs=[];
+        for(const a of assignments){
+            if(a.active===false)continue;
+            const subject=bySubjectId.get(String(a.subject_id)),cls=byClassId.get(String(a.class_id));
+            if(!subject||!cls)continue;
+            // Chỉ xuất môn đã biết mã VNEDU; không tự đoán mã môn mới.
+            if(!getVnEduSubjectCode(subject)||!VNEDU_CLASS_PREFIX[cls])continue;
+            if(!pairs.some(x=>x[0]===subject&&x[1]===cls))pairs.push([subject,cls]);
+        }
+        if(pairs.length)return pairs;
+    }
+
+    // Tài khoản access_scope=assigned nhưng chưa có phân công hợp lệ: không tự sinh sheet ngoài phân công.
+    if(hasAssignedScope())return [];
+
+    // Admin/access all chưa khai báo phân công cá nhân: dùng hồ sơ VNEDU học được từ file mẫu gốc
+    // để không phá luồng đang chạy. Khi admin có assignment, nhánh phía trên tự động thay thế danh sách này.
+    return VNEDU_TEACHING_PAIRS.filter(([subject,cls])=>getAccessibleClassesForSubject(subject).some(c=>c.name===cls));
+}
+async function exportVnEduTeachingWorkbook(){
+    if(typeof ExcelJS==='undefined'){showToast('Chưa tải được thư viện ExcelJS. Hãy kiểm tra Internet và tải lại trang.','error');return;}
+    const period=document.getElementById('vneduPeriod')?.value||'gk1';
+    const selectedSubject=APP_STATE.currentSubject;
+    const selectedCode=getVnEduSubjectCode(selectedSubject);
+    if(!selectedCode){showToast('Môn đang chọn chưa có mã VNEDU đã xác minh.','warning');return;}
+
+    // BƯỚC 148.5.5: nút xuất trên trang Điểm phải tôn trọng môn đang chọn.
+    // Ví dụ đang chọn Tin học thì chỉ tạo các sheet Tin học; không lẫn Công nghệ.
+    const allPairs=getVnEduTeachingPairsForCurrentUser();
+    const pairs=allPairs.filter(([subject])=>getVnEduSubjectCode(subject)===selectedCode);
+    if(!pairs.length){
+        showToast(`Không có phân công lớp nào của môn ${selectedSubject} có mã VNEDU hợp lệ để xuất.`,'warning');
+        return;
+    }
+    try{
+        const wb=new ExcelJS.Workbook();wb.creator='VNEDU compatible - TH-THCS & THPT Lại Sơn';wb.created=new Date();
+        let count=0;for(const [subject,cls] of pairs)if(buildVnEduWorksheet(wb,cls,subject,period))count++;
+        if(!count)throw new Error('Không có sheet nào được tạo.');
+        const y=getVnEduSchoolYearParts();
+        const safeSubject=Object.entries(VNEDU_SUBJECT_MAP).find(([,x])=>x.code===selectedCode)?.[0]||`mon_${selectedCode}`;
+        await downloadVnEduWorkbook(wb,`so_diem_${safeSubject}_cac_lop_toi_day_${period}_${y.start}.xlsx`,`Đã xuất ${count} sheet môn ${selectedSubject} theo phân công VNEDU.`);
+    }catch(err){console.error(err);showToast('Lỗi xuất các môn tôi dạy: '+err.message,'error');}
+}
+
+function collectVnEduImportRows(wb){
+    const selectedPeriod=document.getElementById('vneduPeriod')?.value||'';
+    const records=[],sheetStats=[],errors=[];
+    let firstTarget=null;
+    for(const sn of wb.SheetNames){
+        const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:'',raw:true});
+        if(!rows?.length)continue;
+        const info=parseVnEduTechnicalCode(rows?.[5]?.[1]||rows?.[5]?.[0]||'');
+        if(!info){errors.push(`${sn}: không đọc được mã kỹ thuật tại B6`);continue;}
+        if(!info.cls){errors.push(`${sn}: mã lớp ${info.prefix} chưa có trong bảng ánh xạ`);continue;}
+        if(selectedPeriod&&info.period!==selectedPeriod){errors.push(`${sn}: giai đoạn ${info.period.toUpperCase()} khác lựa chọn ${selectedPeriod.toUpperCase()}`);continue;}
+        if(!firstTarget) firstTarget={sheet:sn,cls:info.cls,subject:info.subject,period:info.period};
+        const h=rows.findIndex(r=>normalizeVnEduText(r?.[0]).toUpperCase()==='STT'&&/Mã học sinh/i.test(normalizeVnEduText(r?.[1])));
+        if(h<0){errors.push(`${sn}: không tìm thấy hàng tiêu đề`);continue;}
+        let sheetCount=0;
+        for(let r=h+1;r<rows.length;r++){
+            const row=rows[r],stt=normalizeVnEduText(row?.[0]),studentCode=normalizeVnEduText(row?.[1]);
+            if(!/^\d+$/.test(stt)||!/^\d+$/.test(studentCode))continue;
+            const st=APP_STATE.students.find(s=>String(s.id)===studentCode);
+            if(!st){errors.push(`${sn}: không tìm thấy mã học sinh ${studentCode}`);continue;}
+            if(st.class!==info.cls){errors.push(`${sn}: học sinh ${studentCode} đang thuộc ${st.class}, file ghi ${info.cls}`);continue;}
+            const comment=normalizeVnEduText(row?.[4]);
+            let hasValue=!!comment,p={student_id:st.db_uuid,subject:info.subject,subject_id:getSubjectId(info.subject)};
+            if(info.period==='gk1'){
+                const rating=normalizeVnEduRating(row?.[5]); if(rating)hasValue=true; p.giua_ky_1=rating;p.nhan_xet_gk1=comment;
+            }else if(info.period==='ck1'){
+                const score=row?.[5],rating=normalizeVnEduRating(row?.[6]); if(score!==''&&score!=null)hasValue=true;if(rating)hasValue=true;
+                p.cuoi_ky_1=(score===''||score==null)?null:Number(score);p.xep_loai_cuoi_ky_1=rating;p.nhan_xet_ck1=comment;
+            }else if(info.period==='gk2'){
+                const rating=normalizeVnEduRating(row?.[5]); if(rating)hasValue=true;p.giua_ky_2=rating;p.nhan_xet_gk2=comment;
+            }else if(info.period==='ck2'){
+                const score=row?.[5],rating=normalizeVnEduRating(row?.[6]),retest=row?.[7],retestRating=normalizeVnEduRating(row?.[8]);
+                if(score!==''&&score!=null||rating||retest!==''&&retest!=null||retestRating)hasValue=true;
+                p.cuoi_ky_2=(score===''||score==null)?null:Number(score);p.xep_loai_cuoi_ky_2=rating;p.nhan_xet_ck2=comment;p.cuoi_ky_2_sau_thi_lai=(retest===''||retest==null)?null:Number(retest);p.xep_loai_cuoi_ky_2_sau_thi_lai=retestRating;
+            }
+            // An toàn: các dòng hoàn toàn trống không ghi đè dữ liệu đang có trong app.
+            if(!hasValue)continue;
+            records.push(p);sheetCount++;
+        }
+        sheetStats.push({sheet:sn,cls:info.cls,subject:info.subject,period:info.period,count:sheetCount});
+    }
+    return {records,sheetStats,errors,firstTarget};
+}
+async function writeVnEduImportRecords(records){
+    let updated=0;
+    for(let i=0;i<records.length;i+=100){
+        const chunk=records.slice(i,i+100);
+        const {error}=await supabase.from('app3_scores').upsert(chunk,{onConflict:'student_id,subject'});
+        if(error)throw error;updated+=chunk.length;
+    }
+    return updated;
+}
+async function importVnEduWorkbookCore(file,modeLabel){
+    const wb=XLSX.read(new Uint8Array(await file.arrayBuffer()),{type:'array'}),parsed=collectVnEduImportRows(wb);
+    if(parsed.errors.length){
+        const preview=parsed.errors.slice(0,6).join('\n');
+        throw new Error(`${preview}${parsed.errors.length>6?`\n... và ${parsed.errors.length-6} lỗi khác`:''}`);
+    }
+    if(!parsed.sheetStats.length)throw new Error('Không tìm thấy sheet VNEDU hợp lệ.');
+    if(!parsed.records.length){
+        const detected=parsed.sheetStats.map(x=>`${x.sheet}: 0 dòng có điểm/nhận xét`).join('\n');
+        throw new Error(`File đúng cấu trúc VNEDU nhưng không có dữ liệu điểm/nhận xét nào để cập nhật.\n${detected}`);
+    }
+    const summary=parsed.sheetStats.filter(x=>x.count>0).map(x=>`${x.sheet}: ${x.count}`).join('\n');
+    if(!window.confirm(`${modeLabel}\n\nĐã đọc ${parsed.sheetStats.length} sheet, có ${parsed.records.length} dòng có dữ liệu.\n\n${summary}\n\nTiếp tục ghi vào hệ thống?`))return null;
+    const updated=await writeVnEduImportRecords(parsed.records);
+
+    // Ghi nhớ sheet có dữ liệu đầu tiên để sau khi reload tự mở đúng Môn - Lớp - Giai đoạn.
+    const firstRecordStat=parsed.sheetStats.find(x=>x.count>0);
+    const target=firstRecordStat?{cls:firstRecordStat.cls,subject:firstRecordStat.subject,period:firstRecordStat.period,sheet:firstRecordStat.sheet}:parsed.firstTarget;
+    if(target?.subject) APP_STATE.currentSubject=target.subject;
+
+    await loadAllData();
+    renderPage('scores');
+
+    // renderPage tạo lại các select nên đặt giá trị sau khi render.
+    if(target){
+        const periodEl=document.getElementById('vneduPeriod');
+        const classEl=document.getElementById('scoreClass');
+        const exportClassEl=document.getElementById('exportScoreClass');
+        if(periodEl) periodEl.value=target.period||periodEl.value;
+        if(classEl) classEl.value=target.cls||'';
+        if(exportClassEl) exportClassEl.value=target.cls||'';
+        initScoreTable();
+    }
+
+    return {updated,target,sheetStats:parsed.sheetStats};
+}
+async function importVnEduScoresExcel(event){
+    if(!requireEditPermission('nhập điểm VNEDU')){if(event?.target)event.target.value='';return;}const file=event?.target?.files?.[0];if(!file)return;
+    try{const result=await importVnEduWorkbookCore(file,'NHẬP VNEDU LỚP');if(result?.updated)showToast(`Đã nhập ${result.updated} dòng VNEDU. Đang hiển thị ${result.target?.subject||''} - ${result.target?.cls||''} - ${(result.target?.period||'').toUpperCase()}.`,'success');}
+    catch(err){console.error(err);showToast('Lỗi nhập điểm VNEDU: '+err.message,'error');}
+    finally{if(event?.target)event.target.value='';}
+}
+async function importVnEduTeachingWorkbook(event){
+    if(!requireEditPermission('nhập các môn tôi dạy từ VNEDU')){if(event?.target)event.target.value='';return;}const file=event?.target?.files?.[0];if(!file)return;
+    try{const result=await importVnEduWorkbookCore(file,'NHẬP CÁC MÔN TÔI DẠY');if(result?.updated)showToast(`Đã nhập ${result.updated} dòng từ "Các môn tôi dạy". Đang mở ${result.target?.subject||''} - ${result.target?.cls||''} - ${(result.target?.period||'').toUpperCase()}.`,'success');}
+    catch(err){console.error(err);showToast('Lỗi nhập các môn tôi dạy: '+err.message,'error');}
+    finally{if(event?.target)event.target.value='';}
+}
+
+window.editStudent = editStudent;
     window.viewStudent = viewStudent;
     window.deleteStudent = deleteStudent;
     window.deleteSelectedStudents = deleteSelectedStudents;
@@ -5575,6 +6937,11 @@ document.addEventListener('DOMContentLoaded', function() {
     window.exportExcel = exportExcel;
     window.downloadSampleExcel = downloadSampleExcel;
     window.importExcel = importExcel;
+    window.importVnEduStudentWorkbook = importVnEduStudentWorkbook;
+    window.exportVnEduScores = exportVnEduScores;
+    window.importVnEduScoresExcel = importVnEduScoresExcel;
+    window.exportVnEduTeachingWorkbook = exportVnEduTeachingWorkbook;
+    window.importVnEduTeachingWorkbook = importVnEduTeachingWorkbook;
     window.printStudents = printStudents;
     window.printStudent = printStudent;
     window.loadAttendance = loadAttendance;
@@ -5600,7 +6967,20 @@ document.addEventListener('DOMContentLoaded', function() {
     window.clearAvatar = clearAvatar;
     window.downloadAvatar = downloadAvatar;
     window.switchStatSubject = switchStatSubject;
+    window.refreshAdvancedStatistics = refreshAdvancedStatistics;
     window.switchSearchSubject = switchSearchSubject;
+    window.saveSubjectConfig = saveSubjectConfig;
+    window.exportAdvancedReport = exportAdvancedReport;
+    window.downloadScoreImportTemplate = downloadScoreImportTemplate;
+    window.importScoresExcel = importScoresExcel;
+    window.backupAllData = backupAllData;
+    window.restoreAllData = restoreAllData;
+    window.mergeBackupData = mergeBackupData;
+    window.fullRestoreBackupData = fullRestoreBackupData;
+    window.saveUserRole = saveUserRole;
+    window.toggleAssignmentPanel = toggleAssignmentPanel;
+    window.handleAccessScopeChange = handleAccessScopeChange;
+    window.setAllAssignments = setAllAssignments;
     // ============================================================
     // FIX LOGIC CẢM ỨNG NÚT 3 GẠCH
     // ============================================================
@@ -5683,18 +7063,19 @@ async function checkAuthState() {
         const { data: { session } } = await client.auth.getSession();
 
         if (session && session.user) {
+            const accessOk = await loadCurrentUserAccess();
+            if (!accessOk) return;
             const user = session.user;
             const meta = user.user_metadata || {};
 
-            const loginScreen = document.getElementById('loginScreen');
-            const mainApp = document.getElementById('app');
-
-            if (loginScreen) loginScreen.classList.add('hidden');
-            if (mainApp) mainApp.classList.remove('hidden');
+            // BƯỚC 141: Chỉ đồng bộ trạng thái người dùng, KHÔNG tự chuyển
+            // khỏi website công khai khi trình duyệt còn session cũ.
+            const headerBtn = document.querySelector('.site-login-btn[data-open-login]');
+            if (headerBtn) headerBtn.innerHTML = '<i class="fas fa-right-to-bracket"></i> Vào hệ thống';
 
             const userNameEls = document.querySelectorAll('.user-name, #userName, .profile-name');
             userNameEls.forEach(el => {
-                el.textContent = meta.full_name || meta.name || user.email;
+                el.textContent = APP_STATE.currentUserDisplayName || meta.full_name || meta.name || user.email;
             });
         }
     } catch (e) {
@@ -5719,3 +7100,5 @@ document.addEventListener('DOMContentLoaded', () => {
         googleBtn.addEventListener('click', loginWithGoogle);
     }
 });
+
+window.showPublicContentEditor=showPublicContentEditor; window.savePublicContent=savePublicContent; window.editPublicContent=editPublicContent; window.deletePublicContent=deletePublicContent; window.resetPublicContentForm=resetPublicContentForm; window.openPublicPostDetail=openPublicPostDetail; window.closePublicPostDetail=closePublicPostDetail; window.handlePublicPostImageSelection=handlePublicPostImageSelection; window.clearPublicPostImage=clearPublicPostImage;
