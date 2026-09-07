@@ -2343,6 +2343,38 @@ let studentPage = 1;
 const STUDENT_PAGE_SIZE = 10;
 let studentSort = { field: 'fullName', order: 'asc' };
 
+// BƯỚC 149.3: Giữ nguyên ngữ cảnh danh sách học sinh sau khi thêm/sửa ảnh/cập nhật/xóa.
+// Người dùng đang làm việc ở lớp nào, trang nào và bộ lọc nào thì quay lại đúng vị trí đó.
+let studentViewState = {
+    search: '',
+    className: '',
+    grade: '',
+    gender: ''
+};
+
+function captureStudentViewState() {
+    studentViewState.search = document.getElementById('studentSearch')?.value ?? studentViewState.search;
+    studentViewState.className = document.getElementById('filterClass')?.value ?? studentViewState.className;
+    studentViewState.grade = document.getElementById('filterGrade')?.value ?? studentViewState.grade;
+    studentViewState.gender = document.getElementById('filterGender')?.value ?? studentViewState.gender;
+}
+
+function restoreStudentViewState() {
+    const searchEl = document.getElementById('studentSearch');
+    const classEl = document.getElementById('filterClass');
+    const gradeEl = document.getElementById('filterGrade');
+    const genderEl = document.getElementById('filterGender');
+
+    if (searchEl) searchEl.value = studentViewState.search || '';
+    if (classEl) {
+        const classStillAvailable = [...classEl.options].some(option => option.value === studentViewState.className);
+        classEl.value = classStillAvailable ? (studentViewState.className || '') : '';
+        if (!classStillAvailable) studentViewState.className = '';
+    }
+    if (gradeEl) gradeEl.value = studentViewState.grade || '';
+    if (genderEl) genderEl.value = studentViewState.gender || '';
+}
+
 function renderStudents() {
     const studentSubject =
     APP_STATE.studentSubject ||
@@ -2494,6 +2526,9 @@ list.sort((a, b) => {
 }
 
 function initStudentTable() {
+    // Sau renderPage('students'), các ô lọc được tạo lại. Khôi phục chúng trước khi lọc dữ liệu.
+    restoreStudentViewState();
+
     const subject =
     APP_STATE.studentSubject ||
     APP_STATE.subjectCatalog?.[0]?.name ||
@@ -2560,13 +2595,19 @@ const quality = evaluation.quality || '';
     });
 }
 
-function filterStudents() { studentPage = 1; initStudentTable(); }
+function filterStudents() {
+    captureStudentViewState();
+    studentPage = 1;
+    initStudentTable();
+}
 function resetFilters() {
+    studentViewState = { search: '', className: '', grade: '', gender: '' };
     document.getElementById('studentSearch').value = '';
     document.getElementById('filterClass').value = '';
     document.getElementById('filterGrade').value = '';
     document.getElementById('filterGender').value = '';
-    filterStudents();
+    studentPage = 1;
+    initStudentTable();
 }
 function goStudentPage(p) {
     const list = getFilteredStudents();
@@ -2848,6 +2889,7 @@ studentSubjects.forEach(sub => {
 
 function openAddStudent() {
     if (!requireEditPermission('thêm học sinh')) return;
+    captureStudentViewState();
     showModal('Thêm học sinh', getStudentFormHTML(null, true), 'Thêm', 'Hủy').then(async confirmed => {
         if (confirmed) {
             const data = getStudentFormData();
@@ -2982,6 +3024,7 @@ APP_STATE.scores[id][subject].quality = data.quality;
 
 function editStudent(id) {
     if (!requireEditPermission('sửa học sinh')) return;
+    captureStudentViewState();
     const student = APP_STATE.students.find(s => s.id === id);
     if (!student) return;
 
@@ -3217,6 +3260,7 @@ function downloadAvatar(studentId) {
 
 async function deleteStudent(id) {
     if (!requireEditPermission('xóa học sinh')) return;
+    captureStudentViewState();
     const student = APP_STATE.students.find(s => s.id === id);
     if (!student) return;
     const confirmed = await showModal('Xóa học sinh', `Bạn có chắc muốn xóa học sinh <strong>${student.fullName}</strong>?`, 'Xóa', 'Hủy');
@@ -3242,6 +3286,7 @@ async function deleteStudent(id) {
 
 async function deleteSelectedStudents() {
     if (!requireEditPermission('xóa học sinh')) return;
+    captureStudentViewState();
     if (APP_STATE.selectedStudents.length === 0) {
         showToast('Vui lòng chọn ít nhất một học sinh.', 'warning');
         return;
@@ -5227,6 +5272,7 @@ function renderSettings() {
             <div class="public-admin-tabs">
                 <button class="btn btn-primary btn-sm" onclick="showPublicContentEditor('post')"><i class="fas fa-newspaper"></i> Quản lý Tin tức</button>
                 <button class="btn btn-secondary btn-sm" onclick="showPublicContentEditor('document')"><i class="fas fa-file-lines"></i> Quản lý Tài liệu</button>
+                <button class="btn btn-secondary btn-sm" onclick="showPublicMediaEditor()"><i class="fas fa-photo-film"></i> Hình ảnh & Video</button>
             </div>
             <div id="publicContentAdminPanel" class="public-content-admin-panel"><p class="text-muted">Chọn một nhóm nội dung để quản lý.</p></div>
             ` : ''}
@@ -5629,7 +5675,11 @@ function initNavigation() {
 // ============================================================
 const PUBLIC_POST_IMAGE_BUCKET = 'app3-public-post-images';
 const PUBLIC_POST_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const PUBLIC_MEDIA_BUCKET = 'app3-public-media';
+const PUBLIC_MEDIA_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+const PUBLIC_MEDIA_VIDEO_MAX_BYTES = 1024 * 1024 * 1024; // 1 GB
 let PUBLIC_POST_CACHE = [];
+let PUBLIC_MEDIA_CACHE = [];
 function publicEscape(value) {
     return String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 }
@@ -5653,6 +5703,9 @@ function publicPostThumb(post, compact=false) {
 async function loadPublicWebsiteContent() {
     const newsGrid = document.getElementById('publicNewsGrid');
     const docGrid = document.getElementById('publicDocumentGrid');
+    const galleryGrid = document.getElementById('publicGalleryGrid');
+    const videoGrid = document.getElementById('publicVideoGrid');
+
     try {
         const [postsRes, docsRes] = await Promise.all([
             supabase.from('app3_public_posts').select('*').eq('is_published', true).order('published_at', { ascending:false }).limit(8),
@@ -5676,10 +5729,116 @@ async function loadPublicWebsiteContent() {
         }
     } catch (err) {
         console.warn('Không thể tải nội dung website công khai:', err);
-        if (newsGrid) newsGrid.innerHTML = '<div class="public-empty-state"><i class="fas fa-circle-exclamation"></i><strong>Chưa tải được tin tức</strong><span>Hãy kiểm tra SQL Bước 145/147 trong Supabase.</span></div>';
-        if (docGrid) docGrid.innerHTML = '<div class="public-empty-state"><i class="fas fa-circle-exclamation"></i><strong>Chưa tải được tài liệu</strong><span>Hãy kiểm tra SQL Bước 145 trong Supabase.</span></div>';
+        if (newsGrid) newsGrid.innerHTML = '<div class="public-empty-state"><i class="fas fa-circle-exclamation"></i><strong>Chưa tải được tin tức</strong><span>Hãy kiểm tra cấu hình Supabase.</span></div>';
+        if (docGrid) docGrid.innerHTML = '<div class="public-empty-state"><i class="fas fa-circle-exclamation"></i><strong>Chưa tải được tài liệu</strong><span>Hãy kiểm tra cấu hình Supabase.</span></div>';
+    }
+
+    try {
+        const mediaRes = await supabase.from('app3_public_media').select('*').eq('is_published', true).order('sort_order', { ascending:true }).order('created_at', { ascending:false }).limit(30);
+        if (mediaRes.error) throw mediaRes.error;
+        const media = mediaRes.data || [];
+        PUBLIC_MEDIA_CACHE = media;
+        renderPublicGallery(media.filter(x => x.media_type === 'image'));
+        renderPublicVideos(media.filter(x => x.media_type === 'video' || x.media_type === 'youtube'));
+    } catch (err) {
+        console.warn('Chưa tải được thư viện ảnh/video công khai:', err);
+        if (galleryGrid) galleryGrid.innerHTML = '<div class="public-empty-state"><i class="fas fa-images"></i><strong>Thư viện ảnh chưa được kích hoạt</strong><span>Admin chạy SQL Bước 149.5 một lần để bật chức năng.</span></div>';
+        if (videoGrid) videoGrid.innerHTML = '<div class="public-empty-state"><i class="fas fa-circle-play"></i><strong>Thư viện video chưa được kích hoạt</strong><span>Admin chạy SQL Bước 149.5 một lần để bật chức năng.</span></div>';
     }
 }
+
+function publicYouTubeId(url='') {
+    const text=String(url||'').trim();
+    if(!text) return '';
+    // Cho phép dán trực tiếp video ID 11 ký tự.
+    if(/^[A-Za-z0-9_-]{11}$/.test(text)) return text;
+    try{
+        const u=new URL(text.startsWith('http')?text:`https://${text}`);
+        const host=u.hostname.toLowerCase().replace(/^www\./,'');
+        if(host==='youtu.be') return (u.pathname.split('/').filter(Boolean)[0]||'').slice(0,11);
+        if(host.endsWith('youtube.com')){
+            const v=u.searchParams.get('v');
+            if(v) return v.slice(0,11);
+            const parts=u.pathname.split('/').filter(Boolean);
+            const i=parts.findIndex(x=>['shorts','embed','live'].includes(x.toLowerCase()));
+            if(i>=0 && parts[i+1]) return parts[i+1].slice(0,11);
+        }
+    }catch{}
+    const m=text.match(/(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:watch\?[^#]*v=|shorts\/|embed\/|live\/))([A-Za-z0-9_-]{6,})/i);
+    return m?m[1].slice(0,11):'';
+}
+function publicYouTubeWatchUrl(value=''){
+    const id=publicYouTubeId(value);
+    return id?`https://www.youtube.com/watch?v=${id}`:'';
+}
+function publicSafeMediaUrl(value) {
+    const url=String(value||'').trim();
+    if(!url) return '';
+    if(/^(https?:\/\/|\/|\.\/|assets\/)/i.test(url)) return publicEscape(url);
+    return '';
+}
+function renderPublicGallery(items=[]) {
+    const grid=document.getElementById('publicGalleryGrid');
+    if(!grid) return;
+    if(!items.length){
+        grid.innerHTML='<div class="public-empty-state"><i class="fas fa-camera-retro"></i><strong>Chưa có hình ảnh công khai</strong><span>Admin có thể tải ảnh từ máy tính hoặc điện thoại.</span></div>';
+        return;
+    }
+    grid.innerHTML=items.slice(0,12).map((item,idx)=>{
+        const url=publicSafeMediaUrl(item.media_url);
+        if(!url) return '';
+        return `<figure class="public-gallery-card ${idx===0?'public-gallery-featured':''}" role="button" tabindex="0" onclick="openPublicMediaModal('${item.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPublicMediaModal('${item.id}')}" aria-label="Xem ảnh ${publicEscape(item.title||'Hoạt động nhà trường')}"><img src="${url}" alt="${publicEscape(item.title||'Hình ảnh hoạt động')}" loading="lazy"><figcaption><b>${publicEscape(item.title||'Hoạt động nhà trường')}</b>${item.category?`<span>${publicEscape(item.category)}</span>`:''}</figcaption></figure>`;
+    }).join('');
+}
+function publicVideoMime(url=''){
+    const clean=String(url||'').split('?')[0].toLowerCase();
+    if(clean.endsWith('.webm')) return 'video/webm';
+    if(clean.endsWith('.mov')) return 'video/quicktime';
+    return 'video/mp4';
+}
+function publicVideoError(el){
+    const box=el?.closest('.public-video-frame');
+    if(!box) return;
+    const link=el?.dataset?.fallback||'';
+    box.innerHTML=`<div class="public-video-fallback"><i class="fas fa-triangle-exclamation"></i><strong>Trình duyệt chưa phát được video này</strong><span>Nếu tệp là MOV/HEVC, hãy đổi sang MP4 H.264 + AAC để phát ổn định trên web.</span>${link?`<a class="btn btn-primary btn-sm" href="${link}" target="_blank" rel="noopener"><i class="fas fa-up-right-from-square"></i> Mở video</a>`:''}</div>`;
+}
+function renderPublicVideos(items=[]) {
+    const grid=document.getElementById('publicVideoGrid');
+    if(!grid) return;
+    if(!items.length){
+        grid.innerHTML='<div class="public-empty-state"><i class="fas fa-circle-play"></i><strong>Chưa có video công khai</strong><span>Admin có thể thêm YouTube, video URL hoặc tải MP4/WebM từ máy.</span></div>';
+        return;
+    }
+    grid.innerHTML=items.slice(0,8).map(item=>{
+        const title=publicEscape(item.title||'Video hoạt động');
+        if(item.media_type==='youtube'){
+            const id=publicYouTubeId(item.media_url);
+            if(!id) return '';
+            const watch=`https://www.youtube.com/watch?v=${id}`;
+            const thumb=`https://img.youtube.com/vi/${id}/maxresdefault.jpg`;
+            const fallbackThumb=`https://img.youtube.com/vi/${id}/hqdefault.jpg`;
+            return `<article class="public-video-card youtube-thumb-card"><a class="public-youtube-thumb" href="${watch}" target="_blank" rel="noopener" aria-label="Mở video ${title} trên YouTube"><img src="${thumb}" alt="Ảnh bìa ${title}" loading="lazy" onerror="this.onerror=null;this.src='${fallbackThumb}'"><span class="public-youtube-play"><i class="fab fa-youtube"></i></span></a><div class="public-video-info"><small><i class="fab fa-youtube"></i> YouTube${item.category?' · '+publicEscape(item.category):''}</small><h3>${title}</h3>${item.description?`<p>${publicEscape(item.description)}</p>`:''}<a class="public-video-open-link" href="${watch}" target="_blank" rel="noopener"><i class="fab fa-youtube"></i> Xem trên YouTube</a></div></article>`;
+        }
+        const url=publicSafeMediaUrl(item.media_url);
+        if(!url) return '';
+        const mime=publicVideoMime(item.media_url);
+        return `<article class="public-video-card"><div class="public-video-frame"><video controls preload="metadata" playsinline data-fallback="${url}" onerror="publicVideoError(this)"><source src="${url}" type="${mime}">Trình duyệt không hỗ trợ video.</video></div><div class="public-video-info"><small><i class="fas fa-video"></i> Video${item.category?' · '+publicEscape(item.category):''}</small><h3>${title}</h3>${item.description?`<p>${publicEscape(item.description)}</p>`:''}<a class="public-video-open-link" href="${url}" target="_blank" rel="noopener"><i class="fas fa-up-right-from-square"></i> Mở video</a></div></article>`;
+    }).join('');
+}
+function openPublicMediaModal(id){
+    const item=PUBLIC_MEDIA_CACHE.find(x=>x.id===id);
+    const modal=document.getElementById('publicMediaModal');
+    const body=document.getElementById('publicMediaModalBody');
+    if(!item||!modal||!body||item.media_type!=='image') return;
+    const url=publicSafeMediaUrl(item.media_url); if(!url) return;
+    body.innerHTML=`<img src="${url}" alt="${publicEscape(item.title||'Hình ảnh hoạt động')}"><div class="public-media-modal-caption"><strong>${publicEscape(item.title||'Hình ảnh hoạt động')}</strong>${item.description?`<p>${publicEscape(item.description)}</p>`:''}</div>`;
+    modal.classList.remove('hidden'); modal.setAttribute('aria-hidden','false'); document.body.classList.add('public-modal-open');
+}
+function closePublicMediaModal(){
+    const modal=document.getElementById('publicMediaModal'); if(!modal)return;
+    modal.classList.add('hidden'); modal.setAttribute('aria-hidden','true'); document.body.classList.remove('public-modal-open');
+}
+
 async function openPublicPostDetail(id) {
     const modal = document.getElementById('publicPostModal');
     const body = document.getElementById('publicPostModalBody');
@@ -5888,6 +6047,164 @@ async function deletePublicContent(id,type){
     showToast('Đã xóa nội dung.');
     await showPublicContentEditor(type);
     await loadPublicWebsiteContent();
+}
+
+// ============================================================
+// WEBSITE PUBLIC - BƯỚC 149.5: QUẢN LÝ HÌNH ẢNH / VIDEO / YOUTUBE
+// ============================================================
+function publicMediaStoragePathFromUrl(url){
+    try{
+        const marker=`/storage/v1/object/public/${PUBLIC_MEDIA_BUCKET}/`;
+        const text=String(url||''); const idx=text.indexOf(marker);
+        return idx<0?'':decodeURIComponent(text.slice(idx+marker.length).split('?')[0]);
+    }catch{return '';}
+}
+async function uploadPublicVideoResumable(path,file){
+    const {data:sessionData,error:sessionError}=await supabase.auth.getSession();
+    const token=sessionData?.session?.access_token;
+    if(sessionError||!token) throw new Error('Phiên đăng nhập không hợp lệ.');
+    let tus;
+    try{ tus=await import('https://cdn.jsdelivr.net/npm/tus-js-client@4/+esm'); }
+    catch(e){ throw new Error('Không tải được bộ tải video dung lượng lớn. Hãy kiểm tra Internet rồi thử lại.'); }
+    const endpoint='https://ohmwphdeeldmlxuuknny.supabase.co/storage/v1/upload/resumable';
+    return await new Promise((resolve,reject)=>{
+        const upload=new tus.Upload(file,{
+            endpoint,
+            retryDelays:[0,3000,5000,10000,20000],
+            headers:{authorization:`Bearer ${token}`,'x-upsert':'false'},
+            uploadDataDuringCreation:true,
+            removeFingerprintOnSuccess:true,
+            metadata:{bucketName:PUBLIC_MEDIA_BUCKET,objectName:path,contentType:file.type||'video/mp4',cacheControl:'3600'},
+            chunkSize:6*1024*1024,
+            onError:(err)=>reject(err),
+            onProgress:(sent,total)=>{
+                const pct=total?Math.round(sent*100/total):0;
+                const hint=document.getElementById('publicMediaTypeHint');
+                if(hint) hint.textContent=`Đang tải video: ${pct}% (${Math.round(sent/1024/1024)} / ${Math.round(total/1024/1024)} MB)`;
+            },
+            onSuccess:()=>resolve(true)
+        });
+        upload.findPreviousUploads().then(prev=>{if(prev?.length)upload.resumeFromPreviousUpload(prev[0]);upload.start();}).catch(()=>upload.start());
+    });
+}
+async function uploadPublicMediaFile(file,mediaType){
+    if(!file) return '';
+    const allowedImage=['image/jpeg','image/png','image/webp','image/gif'];
+    const allowedVideo=['video/mp4','video/webm','video/quicktime'];
+    if(mediaType==='image' && !allowedImage.includes(file.type)) throw new Error('Ảnh chỉ hỗ trợ JPG, PNG, WebP hoặc GIF.');
+    if(mediaType==='video' && !allowedVideo.includes(file.type)) throw new Error('Video chỉ hỗ trợ MP4, WebM hoặc MOV.');
+    if(mediaType==='image' && file.size>PUBLIC_MEDIA_IMAGE_MAX_BYTES) throw new Error('Ảnh vượt quá 10 MB.');
+    if(mediaType==='video' && file.size>PUBLIC_MEDIA_VIDEO_MAX_BYTES) throw new Error(`Video vượt quá giới hạn 1 GB (tệp hiện tại khoảng ${Math.ceil(file.size/1024/1024)} MB).`);
+    const {data:userData,error:userError}=await supabase.auth.getUser();
+    if(userError||!userData?.user) throw new Error('Phiên đăng nhập không hợp lệ.');
+    const ext=(file.name.split('.').pop()||(mediaType==='image'?'jpg':'mp4')).toLowerCase().replace(/[^a-z0-9]/g,'');
+    const base=(file.name.replace(/\.[^.]+$/,'')||mediaType).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,50)||mediaType;
+    const folder=mediaType==='image'?'images':'videos';
+    const path=`${folder}/${userData.user.id}/${Date.now()}-${base}.${ext}`;
+    if(mediaType==='video' && file.size>=6*1024*1024){
+        await uploadPublicVideoResumable(path,file);
+    }else{
+        const {error}=await supabase.storage.from(PUBLIC_MEDIA_BUCKET).upload(path,file,{cacheControl:'3600',upsert:false,contentType:file.type});
+        if(error) throw error;
+    }
+    const {data}=supabase.storage.from(PUBLIC_MEDIA_BUCKET).getPublicUrl(path);
+    if(!data?.publicUrl) throw new Error('Không lấy được URL công khai.');
+    return data.publicUrl;
+}
+async function removePublicMediaStoredFile(url){
+    const path=publicMediaStoragePathFromUrl(url); if(!path)return;
+    const {error}=await supabase.storage.from(PUBLIC_MEDIA_BUCKET).remove([path]);
+    if(error) console.warn('Không thể xóa media cũ khỏi Storage:',error);
+}
+function mediaTypeLabel(type){return type==='image'?'Hình ảnh':type==='youtube'?'YouTube':'Video';}
+function updatePublicMediaFormByType(){
+    const type=document.getElementById('publicMediaType')?.value||'image';
+    const urlGroup=document.getElementById('publicMediaUrlGroup');
+    const fileGroup=document.getElementById('publicMediaFileGroup');
+    const hint=document.getElementById('publicMediaTypeHint');
+    if(urlGroup) urlGroup.style.display=(type==='youtube'||type==='video')?'block':'none';
+    if(fileGroup) fileGroup.style.display=(type==='image'||type==='video')?'block':'none';
+    const input=document.getElementById('publicMediaFile');
+    if(input) input.accept=type==='image'?'image/jpeg,image/png,image/webp,image/gif':'video/mp4,video/webm,video/quicktime';
+    if(hint) hint.textContent=type==='image'?'Chọn ảnh từ máy/điện thoại (tối đa 10 MB).':type==='youtube'?'Dán liên kết YouTube; website sẽ tự lấy ảnh bìa video.':'Có thể tải MP4/WebM/MOV (tối đa 1 GB) hoặc dán URL video trực tiếp. Video lớn dùng tải lên resumable.';
+}
+async function showPublicMediaEditor(){
+    if(!isAdmin())return;
+    const panel=document.getElementById('publicContentAdminPanel'); if(!panel)return;
+    panel.innerHTML='<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Đang tải thư viện...</p>';
+    const {data,error}=await supabase.from('app3_public_media').select('*').order('sort_order',{ascending:true}).order('created_at',{ascending:false});
+    if(error){panel.innerHTML=`<div class="public-empty-state"><i class="fas fa-database"></i><strong>Chưa kích hoạt thư viện ảnh/video</strong><span>Hãy chạy SQL Bước 149.5 trong Supabase trước. ${publicEscape(error.message)}</span></div>`;return;}
+    panel.innerHTML=`<div class="public-admin-form">
+      <input type="hidden" id="publicMediaEditId"><input type="hidden" id="publicMediaOriginalUrl">
+      <div class="form-grid">
+        <div class="form-group"><label>Loại nội dung</label><select id="publicMediaType" onchange="updatePublicMediaFormByType()"><option value="image">Hình ảnh</option><option value="video">Video tải lên / URL</option><option value="youtube">YouTube</option></select></div>
+        <div class="form-group"><label>Album / Nhóm</label><input id="publicMediaCategory" placeholder="Ví dụ: Hoạt động học sinh"></div>
+      </div>
+      <div class="form-group"><label>Tiêu đề</label><input id="publicMediaTitle" placeholder="Nhập tiêu đề ảnh hoặc video"></div>
+      <div class="form-group"><label>Mô tả</label><textarea id="publicMediaDescription" rows="3" placeholder="Mô tả ngắn (không bắt buộc)"></textarea></div>
+      <div id="publicMediaUrlGroup" class="form-group" style="display:none"><label>Liên kết YouTube / Video</label><input id="publicMediaUrl" type="url" placeholder="https://..."></div>
+      <div id="publicMediaFileGroup" class="form-group public-image-upload-group">
+        <label>Tệp từ máy / điện thoại</label>
+        <label class="btn btn-secondary btn-sm public-image-file-label"><i class="fas fa-upload"></i> Chọn tệp<input id="publicMediaFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif"></label>
+        <small id="publicMediaTypeHint" class="public-media-hint">Chọn ảnh từ máy/điện thoại (tối đa 10 MB).</small>
+      </div>
+      <div class="form-grid"><div class="form-group"><label>Thứ tự</label><input id="publicMediaSortOrder" type="number" value="0" min="0" step="1"></div><div class="form-group"><label>Hiển thị</label><label class="switch-inline"><input type="checkbox" id="publicMediaPublished" checked> <span>Công khai trên website</span></label></div></div>
+      <div class="flex gap-2 mt-2"><button class="btn btn-primary btn-sm" onclick="savePublicMedia()"><i class="fas fa-save"></i> Lưu</button><button class="btn btn-secondary btn-sm" onclick="resetPublicMediaForm()">Làm mới</button></div>
+    </div>
+    <div class="table-wrapper mt-2"><table><thead><tr><th>Loại</th><th>Tiêu đề</th><th>Nhóm</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>${(data||[]).map(x=>`<tr><td>${mediaTypeLabel(x.media_type)}</td><td><strong>${publicEscape(x.title||'')}</strong></td><td>${publicEscape(x.category||'')}</td><td>${x.is_published?'Công khai':'Đang ẩn'}</td><td><button class="btn btn-primary btn-sm" onclick='editPublicMedia(${JSON.stringify(JSON.stringify(x))})'><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="deletePublicMedia('${x.id}')"><i class="fas fa-trash"></i></button></td></tr>`).join('')||'<tr><td colspan="5" class="text-muted">Chưa có hình ảnh/video.</td></tr>'}</tbody></table></div>`;
+    updatePublicMediaFormByType();
+}
+function editPublicMedia(json){
+    const x=JSON.parse(json);
+    document.getElementById('publicMediaEditId').value=x.id||'';
+    document.getElementById('publicMediaOriginalUrl').value=x.media_url||'';
+    document.getElementById('publicMediaType').value=x.media_type||'image';
+    document.getElementById('publicMediaTitle').value=x.title||'';
+    document.getElementById('publicMediaCategory').value=x.category||'';
+    document.getElementById('publicMediaDescription').value=x.description||'';
+    document.getElementById('publicMediaUrl').value=(x.media_type==='youtube'||x.media_type==='video')?(x.media_url||''):'';
+    document.getElementById('publicMediaSortOrder').value=Number.isFinite(Number(x.sort_order))?Number(x.sort_order):0;
+    document.getElementById('publicMediaPublished').checked=x.is_published!==false;
+    const file=document.getElementById('publicMediaFile'); if(file)file.value='';
+    updatePublicMediaFormByType();
+}
+function resetPublicMediaForm(){showPublicMediaEditor();}
+async function savePublicMedia(){
+    if(!isAdmin())return;
+    const id=document.getElementById('publicMediaEditId')?.value||'';
+    const media_type=document.getElementById('publicMediaType')?.value||'image';
+    const title=document.getElementById('publicMediaTitle')?.value.trim()||'';
+    const category=document.getElementById('publicMediaCategory')?.value.trim()||'';
+    const description=document.getElementById('publicMediaDescription')?.value.trim()||'';
+    const is_published=!!document.getElementById('publicMediaPublished')?.checked;
+    const sort_order=parseInt(document.getElementById('publicMediaSortOrder')?.value||'0',10)||0;
+    const oldUrl=document.getElementById('publicMediaOriginalUrl')?.value.trim()||'';
+    const typedUrl=document.getElementById('publicMediaUrl')?.value.trim()||'';
+    const file=document.getElementById('publicMediaFile')?.files?.[0]||null;
+    if(!title){showToast('Vui lòng nhập tiêu đề.','error');return;}
+    if(media_type==='youtube' && !publicYouTubeId(typedUrl||oldUrl)){showToast('Liên kết YouTube chưa đúng. Hỗ trợ youtube.com, youtu.be, Shorts và Live.','error');return;}
+    if(media_type==='image' && !file && !oldUrl){showToast('Vui lòng chọn ảnh.','error');return;}
+    if(media_type==='video' && !file && !typedUrl && !oldUrl){showToast('Vui lòng chọn video hoặc nhập URL video.','error');return;}
+    let uploaded='';
+    try{
+        if(file){showToast(media_type==='image'?'Đang tải ảnh...':'Đang tải video...','info');uploaded=await uploadPublicMediaFile(file,media_type);}
+    }catch(err){showToast('Không tải được tệp: '+(err?.message||err),'error');return;}
+    const media_url=uploaded || (media_type==='youtube'?(typedUrl||oldUrl):(typedUrl||oldUrl));
+    const payload={media_type,title,category:category||null,description:description||null,media_url,is_published,sort_order,updated_at:new Date().toISOString()};
+    const q=id?supabase.from('app3_public_media').update(payload).eq('id',id):supabase.from('app3_public_media').insert(payload);
+    const {error}=await q;
+    if(error){if(uploaded)await removePublicMediaStoredFile(uploaded);showToast('Lỗi lưu ảnh/video: '+error.message,'error');return;}
+    if(uploaded && oldUrl && oldUrl!==uploaded) await removePublicMediaStoredFile(oldUrl);
+    showToast('Đã cập nhật ảnh/video trên website!');
+    await showPublicMediaEditor(); await loadPublicWebsiteContent();
+}
+async function deletePublicMedia(id){
+    if(!isAdmin()||!confirm('Xóa hình ảnh/video này?'))return;
+    const {data}=await supabase.from('app3_public_media').select('media_url').eq('id',id).maybeSingle();
+    const {error}=await supabase.from('app3_public_media').delete().eq('id',id);
+    if(error){showToast('Lỗi xóa: '+error.message,'error');return;}
+    if(data?.media_url) await removePublicMediaStoredFile(data.media_url);
+    showToast('Đã xóa hình ảnh/video.'); await showPublicMediaEditor(); await loadPublicWebsiteContent();
 }
 
 // ============================================================
@@ -6659,12 +6976,22 @@ function getVnEduSchoolYearParts(){
 }
 function getVnEduSheetName(subject,cls){
     const code=getVnEduSubjectCode(subject)||'MON';
-    return `M${code}(${String(cls||'').toLowerCase()}`.slice(0,31);
+    const c=String(cls||'').toLowerCase();
+    // VNEDU nhận diện 2 phân môn Tin học & Công nghệ theo tên sheet gốc THVCN(H/N...).
+    if(code==='113') return `THVCN(H${c}`.slice(0,31);
+    if(code==='107') return `THVCN(N${c}`.slice(0,31);
+    return `M${code}(${c}`.slice(0,31);
 }
+
 function getVnEduSubjectTitle(subject){
-    const name=getVnEduSubjectEntry(subject)?.name||normalizeVnEduText(subject)||'MÔN HỌC';
+    const entry=getVnEduSubjectEntry(subject);
+    // Phải giữ đúng tên môn mà VNEDU xuất ra; nếu chỉ ghi "TIN HỌC" VNEDU báo không tìm thấy môn.
+    if(entry?.code==='113') return 'TIN HỌC VÀ CÔNG NGHỆ (TIN HỌC)';
+    if(entry?.code==='107') return 'TIN HỌC VÀ CÔNG NGHỆ (CÔNG NGHỆ)';
+    const name=entry?.name||normalizeVnEduText(subject)||'MÔN HỌC';
     return name.toLocaleUpperCase('vi-VN');
 }
+
 function getVnEduClassFromPrefix(prefix){
     return Object.entries(VNEDU_CLASS_PREFIX).find(([,p])=>String(p)===String(prefix))?.[0]||'';
 }
@@ -6719,7 +7046,7 @@ function buildVnEduWorksheet(wb,cls,subject,period){
     const ws=wb.addWorksheet(getVnEduSheetName(subject,cls));
     ws.mergeCells('A1:D1'); ws.getCell('A1').value='ỦY BAN NHÂN DÂN ĐẶC KHU KIÊN HẢI';
     ws.mergeCells('E1:G1'); ws.getCell('E1').value='CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM';
-    ws.mergeCells('A2:D2'); ws.getCell('A2').value='TH-THCS & THPT LẠI SƠN';
+    ws.mergeCells('A2:D2'); ws.getCell('A2').value='TRƯỜNG TH TRẦN QUỐC TOẢN';
     ws.mergeCells('E2:G2'); ws.getCell('E2').value='Độc lập - Tự do - Hạnh phúc';
     ws.mergeCells('A4:G4'); ws.getCell('A4').value=`BẢNG ĐIỂM CHI TIẾT - MÔN ${getVnEduSubjectTitle(subject)} - ${meta.title} - NĂM HỌC ${year.start} - ${year.end}`;
     ws.mergeCells('A5:G5'); ws.getCell('A5').value=`Khối ${cls[0]} - Lớp ${cls}`;
@@ -6754,7 +7081,7 @@ async function exportVnEduScores(){
     if(!VNEDU_CLASS_PREFIX[cls]){showToast(`Chưa có mã VNEDU của lớp ${cls} trong file mẫu.`,'warning');return;}
     if(typeof ExcelJS==='undefined'){showToast('Chưa tải được thư viện ExcelJS. Hãy kiểm tra Internet và tải lại trang.','error');return;}
     try{
-        const wb=new ExcelJS.Workbook();wb.creator='VNEDU compatible - TH-THCS & THPT Lại Sơn';wb.created=new Date();
+        const wb=new ExcelJS.Workbook();wb.creator='VNEDU compatible - Trường TH Trần Quốc Toản';wb.created=new Date();
         if(!buildVnEduWorksheet(wb,cls,subject,period))throw new Error('Không tạo được sheet VNEDU cho lớp đã chọn.');
         const y=getVnEduSchoolYearParts();
         await downloadVnEduWorkbook(wb,`VNEDU_${getVnEduSubjectCode(subject)}_${cls}_${period}_${y.start}.xlsx`,`Đã xuất VNEDU ${period.toUpperCase()} lớp ${cls} theo cấu trúc file gốc.`);
@@ -6803,7 +7130,7 @@ async function exportVnEduTeachingWorkbook(){
         return;
     }
     try{
-        const wb=new ExcelJS.Workbook();wb.creator='VNEDU compatible - TH-THCS & THPT Lại Sơn';wb.created=new Date();
+        const wb=new ExcelJS.Workbook();wb.creator='VNEDU compatible - Trường TH Trần Quốc Toản';wb.created=new Date();
         let count=0;for(const [subject,cls] of pairs)if(buildVnEduWorksheet(wb,cls,subject,period))count++;
         if(!count)throw new Error('Không có sheet nào được tạo.');
         const y=getVnEduSchoolYearParts();
@@ -7102,4 +7429,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-window.showPublicContentEditor=showPublicContentEditor; window.savePublicContent=savePublicContent; window.editPublicContent=editPublicContent; window.deletePublicContent=deletePublicContent; window.resetPublicContentForm=resetPublicContentForm; window.openPublicPostDetail=openPublicPostDetail; window.closePublicPostDetail=closePublicPostDetail; window.handlePublicPostImageSelection=handlePublicPostImageSelection; window.clearPublicPostImage=clearPublicPostImage;
+window.showPublicContentEditor=showPublicContentEditor; window.savePublicContent=savePublicContent; window.editPublicContent=editPublicContent; window.deletePublicContent=deletePublicContent; window.resetPublicContentForm=resetPublicContentForm; window.openPublicPostDetail=openPublicPostDetail; window.closePublicPostDetail=closePublicPostDetail; window.handlePublicPostImageSelection=handlePublicPostImageSelection; window.clearPublicPostImage=clearPublicPostImage; window.showPublicMediaEditor=showPublicMediaEditor; window.updatePublicMediaFormByType=updatePublicMediaFormByType; window.savePublicMedia=savePublicMedia; window.editPublicMedia=editPublicMedia; window.deletePublicMedia=deletePublicMedia; window.resetPublicMediaForm=resetPublicMediaForm; window.openPublicMediaModal=openPublicMediaModal; window.closePublicMediaModal=closePublicMediaModal;
+
+window.publicVideoError = publicVideoError;

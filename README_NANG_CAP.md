@@ -90,3 +90,31 @@ Không cần chạy SQL mới cho bước này.
 - Hai cột bên chỉ tồn tại trong khu vực banner; các phần nội dung bên dưới vẫn toàn chiều rộng.
 - Mobile tự chuyển thành banner trước, menu/tiện ích phía dưới để không ép hẹp nội dung.
 - Không thay đổi Supabase, dữ liệu học sinh, điểm, VNEDU, RLS hoặc phân quyền.
+
+## BƯỚC 149.3 – GIỮ NGUYÊN LỚP/BỘ LỌC KHI THAO TÁC HỌC SINH
+- Khi đang lọc một lớp (ví dụ 4B), sau khi sửa thông tin hoặc thay ảnh và bấm Cập nhật, danh sách quay lại đúng lớp 4B.
+- Giữ nguyên ô tìm kiếm, khối, giới tính và trang phân trang đang làm việc.
+- Áp dụng cả khi thêm, sửa, thay ảnh, xóa một học sinh hoặc xóa nhiều học sinh.
+- Không thay đổi database, RLS, điểm, VNEDU hay phân quyền.
+
+
+## BƯỚC 149.5 - ẢNH / VIDEO / YOUTUBE CÔNG KHAI
+
+- Thêm bảng `app3_public_media` và bucket Storage `app3-public-media`.
+- Người xem website không cần đăng nhập vẫn xem được ảnh/video đã công khai.
+- Admin vào **Cài đặt > Nội dung website công khai > Hình ảnh & Video** để thêm/sửa/xóa/ẩn hiện.
+- Hỗ trợ ảnh JPG/PNG/WebP/GIF tối đa 10 MB.
+- Hỗ trợ video MP4/WebM/MOV tối đa 120 MB hoặc URL video trực tiếp.
+- Hỗ trợ link YouTube dạng watch, youtu.be, shorts hoặc embed.
+- Đã đưa 6 ảnh hoạt động người dùng cung cấp vào `assets/gallery` làm ảnh mẫu ban đầu.
+- Tin tức/Thông báo và Tài liệu tiếp tục dùng module hiện có.
+
+### Việc thủ công duy nhất
+Chạy toàn bộ file `BUOC_149_5_SUPABASE.sql` một lần trong **Supabase > SQL Editor**, sau đó triển khai lại website.
+
+
+## BƯỚC 149.7
+- Nâng giới hạn video phía app lên 1 GB và hiển thị dung lượng thực nếu vượt giới hạn.
+- Video lớn tiếp tục dùng resumable upload.
+- YouTube hiển thị ảnh bìa thumbnail (maxresdefault, fallback hqdefault) thay vì iframe trực tiếp để tránh khung 'This video is unavailable'.
+- Bấm ảnh bìa hoặc nút để mở video trên YouTube.

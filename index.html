@@ -110,19 +110,15 @@
 
             <section id="hinh-anh" class="site-section public-gallery-section">
                 <div class="site-container">
-                    <div class="section-heading"><span>HÌNH ẢNH HOẠT ĐỘNG</span><h2>Khoảnh khắc Lại Sơn</h2><p>Không gian hình ảnh công khai của nhà trường; thư viện album động sẽ được bổ sung ở bước tiếp theo.</p></div>
-                    <div class="public-gallery-grid">
-                        <figure class="public-gallery-main"><img src="assets/banner-lai-son.png" alt="Hình ảnh Trường Lại Sơn"><figcaption><b>Trường học thân thiện</b><span>Tri thức hôm nay · Tương lai ngày mai</span></figcaption></figure>
-                        <div class="public-gallery-placeholder"><i class="fas fa-camera-retro"></i><b>Album hoạt động nhà trường</b><span>Ảnh mới sẽ được Ban quản trị cập nhật tại đây.</span></div>
-                        <div class="public-gallery-placeholder"><i class="fas fa-people-group"></i><b>Hoạt động học sinh</b><span>Sẵn sàng cho thư viện ảnh theo từng album.</span></div>
-                    </div>
+                    <div class="section-heading"><span>HÌNH ẢNH HOẠT ĐỘNG</span><h2>Khoảnh khắc Lại Sơn</h2><p>Ảnh hoạt động được Ban quản trị cập nhật trực tiếp từ máy tính hoặc điện thoại.</p></div>
+                    <div id="publicGalleryGrid" class="public-gallery-grid"><div class="public-content-loading"><i class="fas fa-spinner fa-spin"></i> Đang tải hình ảnh...</div></div>
                 </div>
             </section>
 
             <section id="video" class="site-section public-video-section">
                 <div class="site-container">
-                    <div class="section-heading"><span>VIDEO HOẠT ĐỘNG</span><h2>Góc nhìn sinh động</h2><p>Khu vực dành cho video YouTube, Facebook hoặc video công khai của nhà trường.</p></div>
-                    <div class="public-video-empty"><div class="video-play-mark"><i class="fas fa-play"></i></div><div><b>Thư viện video đang sẵn sàng</b><span>Ở bước quản trị nội dung, Admin có thể thêm video mà không cần sửa mã nguồn.</span></div></div>
+                    <div class="section-heading"><span>VIDEO HOẠT ĐỘNG</span><h2>Góc nhìn sinh động</h2><p>Hỗ trợ video tải lên, video bằng đường dẫn và YouTube; người xem không cần đăng nhập.</p></div>
+                    <div id="publicVideoGrid" class="public-video-grid"><div class="public-content-loading"><i class="fas fa-spinner fa-spin"></i> Đang tải video...</div></div>
                 </div>
             </section>
 
@@ -161,6 +157,13 @@
             <div class="site-container footer-bottom"><span>© 2026 Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn.</span><span>Đặc khu Kiên Hải, tỉnh An Giang</span></div>
         </footer>
         <button id="publicBackToTop" class="public-back-to-top" aria-label="Lên đầu trang"><i class="fas fa-arrow-up"></i></button>
+        <div id="publicMediaModal" class="public-post-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Xem hình ảnh">
+            <div class="public-post-modal-backdrop" onclick="closePublicMediaModal()"></div>
+            <div class="public-media-modal-shell">
+                <button class="public-post-modal-close" onclick="closePublicMediaModal()" aria-label="Đóng"><i class="fas fa-xmark"></i></button>
+                <div id="publicMediaModalBody" class="public-media-modal-body"></div>
+            </div>
+        </div>
         <div id="publicPostModal" class="public-post-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Chi tiết bài viết">
             <div class="public-post-modal-backdrop" onclick="closePublicPostDetail()"></div>
             <div class="public-post-modal-shell">
