@@ -2224,6 +2224,7 @@ function renderPage(page) {
         case 'statistics': container.innerHTML = renderStatistics(); break;
         case 'search': container.innerHTML = renderSearch(); break;
         case 'settings': container.innerHTML = renderSettings(); break;
+        case 'public-content': container.innerHTML = renderPublicContentManager(); break;
         case 'wheel': container.innerHTML = renderWheel(); break;
         default: container.innerHTML = '<p>Trang không tồn tại.</p>';
     }
@@ -2234,6 +2235,7 @@ function renderPage(page) {
         if (page === 'scores') initScoreTable();
         if (page === 'attendance') loadAttendance();
         if (page === 'settings') initSettings();
+        if (page === 'public-content') initPublicContentManager();
         if (page === 'search') initSearch();
         if (page === 'statistics') initStatCharts();
         if (page === 'wheel') initWheel();
@@ -2257,6 +2259,7 @@ function getPageTitle(page) {
         statistics: 'Thống kê',
         search: 'Tìm kiếm',
         settings: 'Cài đặt',
+        'public-content': 'Nội dung website công khai',
         wheel: 'Vòng quay may mắn'
     };
     return titles[page] || page;
@@ -2376,95 +2379,79 @@ function restoreStudentViewState() {
 }
 
 function renderStudents() {
-    const studentSubject =
-    APP_STATE.studentSubject ||
-    APP_STATE.subjectCatalog?.[0]?.name ||
-    SUBJECTS[0];
+    const studentSubject = APP_STATE.studentSubject || APP_STATE.subjectCatalog?.[0]?.name || SUBJECTS[0];
+    const studentSubjectNames = getVisibleSubjectNames();
+    const studentSubjectOptions = studentSubjectNames.map(subject => `<option value="${subject}" ${subject === studentSubject ? 'selected' : ''}>${subject}</option>`).join('');
+    const studentAccessibleClasses = getAccessibleClassesForSubject(studentSubject);
+    const selectedClass = studentViewState.className || '';
+    const selectedStudent = window.__studentInlineEditorId ? APP_STATE.students.find(s => s.id === window.__studentInlineEditorId) : null;
+    let editorHtml = '';
+    if (selectedStudent) {
+        const subjectScore = APP_STATE.scores[selectedStudent.id]?.[studentSubject] || {};
+        const studentForForm = {...selectedStudent, competence: subjectScore.competence || '', quality: subjectScore.quality || ''};
+        editorHtml = `
+          <section class="student-editor-card">
+            <div class="student-panel-heading">
+              <div><span class="student-heading-icon"><i class="fas fa-user-pen"></i></span><div><h3>Cập nhật học sinh</h3><p>Chỉnh sửa hồ sơ và ảnh học sinh. Sau khi lưu vẫn giữ nguyên lớp đang chọn.</p></div></div>
+              <button class="student-close-editor" onclick="closeStudentInlineEditor()" title="Đóng"><i class="fas fa-xmark"></i></button>
+            </div>
+            <div class="student-inline-form">${getStudentFormHTML(studentForForm, true)}</div>
+            <label class="student-keep-class"><input type="checkbox" id="keepStudentClassAfterSave" checked><span><strong>Giữ nguyên lớp hiện tại sau khi lưu</strong><small>Thuận tiện cập nhật liên tục nhiều học sinh trong cùng lớp.</small></span></label>
+            <div class="student-editor-actions">
+              <button class="btn btn-primary" onclick="saveStudentInline(false)"><i class="fas fa-floppy-disk"></i> Lưu cập nhật</button>
+              <button class="btn btn-secondary student-next-btn" onclick="saveStudentInline(true)"><i class="fas fa-forward-step"></i> Lưu & sang học sinh kế tiếp</button>
+              <button class="btn btn-secondary" onclick="closeStudentInlineEditor()">Hủy</button>
+            </div>
+          </section>`;
+    } else {
+        editorHtml = `
+          <section class="student-editor-card student-editor-empty">
+            <div class="student-empty-icon"><i class="fas fa-user-pen"></i></div>
+            <h3>Chọn học sinh để cập nhật</h3>
+            <p>Bấm <strong>Sửa</strong> ở danh sách bên trái. Hệ thống sẽ giữ nguyên lớp và bộ lọc sau khi lưu.</p>
+          </section>`;
+    }
 
-const studentSubjectNames = getVisibleSubjectNames();
-
-const studentSubjectOptions = studentSubjectNames
-    .map(subject => `<option value="${subject}" ${subject === studentSubject ? 'selected' : ''}>${subject}</option>`)
-    .join('');
-const studentAccessibleClasses = getAccessibleClassesForSubject(studentSubject);
     return `
-        <div class="card">
-            <div class="flex-between mb-2">
-                <h3 class="card-title"><i class="fas fa-user-graduate"></i> Danh sách học sinh</h3>
-                <div class="flex gap-2">
-                <div class="form-group" style="margin:0; min-width:140px;">
-    <label style="font-size:0.75rem;">Môn đánh giá</label>
-    <select
-        id="studentSubject"
-        onchange="window.switchStudentSubject(this.value)"
-        style="padding:0.3rem 0.6rem;"
-    >
-        ${studentSubjectOptions}
-    </select>
-</div>
-<div class="form-group" style="margin:0; min-width:150px;">
-    <label style="font-size:0.75rem;">Phạm vi xuất</label>
-    <select
-        id="studentExportScope"
-        style="padding:0.3rem 0.6rem;"
-    >
-        <option value="all">Tất cả học sinh</option>
-        <option value="class">Theo lớp</option>
-        <option value="selected">Học sinh đã tick</option>
-    </select>
-</div>
-<div class="form-group" style="margin:0; min-width:140px;">
-    <label style="font-size:0.75rem;">Lớp xuất</label>
-    <select
-        id="studentExportClass"
-        style="padding:0.3rem 0.6rem;"
-    >
-        <option value="">Tất cả lớp</option>
-        ${studentAccessibleClasses.map(c => `
-            <option value="${c.name}">${c.name}</option>
-        `).join('')}
-    </select>
-</div>
-                    <button class="btn btn-primary btn-sm" onclick="openAddStudent()"><i class="fas fa-plus"></i> Thêm</button>
-                    <button class="btn btn-danger btn-sm" onclick="deleteSelectedStudents()"><i class="fas fa-trash"></i> Xóa nhiều</button>
-                    <button class="btn btn-success btn-sm" onclick="exportExcel()"><i class="fas fa-file-excel"></i> Excel</button>
-                    <button class="btn btn-secondary btn-sm" onclick="downloadSampleExcel()"><i class="fas fa-file-excel"></i> Tải mẫu</button>
-                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('importFileInput').click()"><i class="fas fa-upload"></i> Import Excel</button>
-                    <input type="file" id="importFileInput" accept=".xlsx,.xls" style="display:none" onchange="importExcel(event)">
-                    <button class="btn btn-info btn-sm" onclick="document.getElementById('vneduStudentImportInput').click()"><i class="fas fa-school"></i> Nhập DS mẫu VNEDU</button>
-                    <input type="file" id="vneduStudentImportInput" accept=".xlsx,.xls" style="display:none" onchange="importVnEduStudentWorkbook(event)">
-                    <button class="btn btn-secondary btn-sm" onclick="printStudents()"><i class="fas fa-print"></i> In</button>
-                </div>
-            </div>
-            <div class="search-bar">
-                <input type="text" id="studentSearch" placeholder="Tìm theo tên, mã HS..." oninput="filterStudents()">
-                <select id="filterClass" onchange="filterStudents()"><option value="">Tất cả lớp</option>${studentAccessibleClasses.map(c => `<option value="${c.name}">${c.name}</option>`).join('')}</select>
-                <select id="filterGrade" onchange="filterStudents()"><option value="">Tất cả khối</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select>
-                <select id="filterGender" onchange="filterStudents()"><option value="">Giới tính</option><option value="Nam">Nam</option><option value="Nữ">Nữ</option></select>
-                <button class="btn btn-secondary btn-sm" onclick="resetFilters()"><i class="fas fa-undo"></i> Reset</button>
-            </div>
-            <div class="table-wrapper">
-                <table id="studentTable">
-                    <thead><tr>
-                        <th><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
-                        <th>STT</th>
-                        <th>Ảnh</th>
-                        <th data-sort="id">Mã HS</th>
-                        <th data-sort="fullName">Họ tên</th>
-                        <th data-sort="dob">Ngày sinh</th>
-                        <th data-sort="gender">Giới tính</th>
-                        <th data-sort="class">Lớp</th>
-                        <th data-sort="competence">Năng lực</th>
-                        <th data-sort="quality">Phẩm chất</th>
-                        <th data-sort="status">Trạng thái</th>
-                        <th>Thao tác</th>
-                    </tr></thead>
-                    <tbody id="studentTableBody"></tbody>
-                </table>
-            </div>
-            <div class="pagination" id="studentPagination"></div>
+      <div class="student-pro-page">
+        <div class="student-pro-header">
+          <div class="student-pro-title"><span class="student-title-icon"><i class="fas fa-users"></i></span><div><h2>Quản lý học sinh</h2><p>Quản lý thông tin, hình ảnh, hồ sơ và thao tác liên tục theo lớp.</p></div></div>
+          <div class="student-top-actions">
+            <button class="btn btn-primary" onclick="openAddStudent()"><i class="fas fa-plus"></i> Thêm học sinh</button>
+            <button class="btn btn-secondary" onclick="document.getElementById('importFileInput').click()"><i class="fas fa-file-import"></i> Nhập Excel</button>
+            <button class="btn btn-secondary" onclick="exportExcel()"><i class="fas fa-download"></i> Xuất danh sách</button>
+            <input type="file" id="importFileInput" accept=".xlsx,.xls" style="display:none" onchange="importExcel(event)">
+          </div>
         </div>
-    `;
+
+        <div class="student-filter-card">
+          <div class="student-filter-item"><label>Môn đánh giá</label><select id="studentSubject" onchange="window.switchStudentSubject(this.value)">${studentSubjectOptions}</select></div>
+          <div class="student-filter-item"><label>Khối</label><select id="filterGrade" onchange="filterStudents()"><option value="">Tất cả khối</option><option value="1">Khối 1</option><option value="2">Khối 2</option><option value="3">Khối 3</option><option value="4">Khối 4</option><option value="5">Khối 5</option></select></div>
+          <div class="student-filter-item"><label>Lớp</label><select id="filterClass" onchange="filterStudents()"><option value="">Tất cả lớp</option>${studentAccessibleClasses.map(c => `<option value="${c.name}">${c.name}</option>`).join('')}</select></div>
+          <div class="student-filter-item student-search-field"><label>Tìm học sinh</label><div class="student-search-wrap"><i class="fas fa-magnifying-glass"></i><input type="text" id="studentSearch" placeholder="Nhập mã học sinh, họ tên..." oninput="filterStudents()"></div></div>
+          <div class="student-filter-item"><label>Giới tính</label><select id="filterGender" onchange="filterStudents()"><option value="">Tất cả</option><option value="Nam">Nam</option><option value="Nữ">Nữ</option></select></div>
+          <button class="student-reset-btn" onclick="resetFilters()" title="Đặt lại bộ lọc"><i class="fas fa-rotate-right"></i></button>
+          <div class="student-class-chip"><span class="student-heading-icon"><i class="fas fa-users"></i></span><div><small>Lớp đang chọn</small><strong>${selectedClass || 'Tất cả lớp'}</strong></div></div>
+        </div>
+
+        <div class="student-pro-grid ${selectedStudent ? 'has-editor' : ''}">
+          <section class="student-list-card">
+            <div class="student-panel-heading">
+              <div><span class="student-heading-icon"><i class="fas fa-list"></i></span><div><h3>Danh sách học sinh</h3><p id="studentListSummary">Sẵn sàng tải danh sách</p></div></div>
+              <div class="student-list-tools">
+                <button class="btn btn-danger btn-sm" onclick="deleteSelectedStudents()"><i class="fas fa-trash"></i> Xóa đã chọn</button>
+              </div>
+            </div>
+            <div class="student-mini-tabs"><button class="active" onclick="setStudentGenderFilter('')">Tất cả</button><button onclick="setStudentGenderFilter('Nam')">Nam</button><button onclick="setStudentGenderFilter('Nữ')">Nữ</button></div>
+            <div class="table-wrapper student-table-shell"><table id="studentTable"><thead><tr>
+              <th><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th><th>STT</th><th>Ảnh</th><th data-sort="id">Mã HS</th><th data-sort="fullName">Họ tên</th><th data-sort="dob">Ngày sinh</th><th data-sort="gender">Giới tính</th><th data-sort="class">Lớp</th><th data-sort="competence">Năng lực</th><th data-sort="quality">Phẩm chất</th><th data-sort="status">Trạng thái</th><th>Thao tác</th>
+            </tr></thead><tbody id="studentTableBody"></tbody></table></div>
+            <div class="student-list-footer"><div class="student-export-compact"><select id="studentExportScope"><option value="all">Tất cả học sinh</option><option value="class">Theo lớp</option><option value="selected">Học sinh đã tick</option></select><select id="studentExportClass"><option value="">Tất cả lớp</option>${studentAccessibleClasses.map(c => `<option value="${c.name}">${c.name}</option>`).join('')}</select></div><div class="pagination" id="studentPagination"></div></div>
+            <input type="file" id="vneduStudentImportInput" accept=".xlsx,.xls" style="display:none" onchange="importVnEduStudentWorkbook(event)">
+          </section>
+          ${editorHtml}
+        </div>
+      </div>`;
 }
 function switchStudentSubject(subject) {
     const validSubjects =
@@ -2536,6 +2523,7 @@ function initStudentTable() {
 
     const list = getFilteredStudents();
     const total = list.length;
+    const summaryEl = document.getElementById('studentListSummary'); if (summaryEl) summaryEl.textContent = `Hiển thị ${total} học sinh${studentViewState.className ? ' · Lớp ' + studentViewState.className : ''}`;
     const totalPages = Math.ceil(total / STUDENT_PAGE_SIZE);
     if (studentPage > totalPages) studentPage = totalPages || 1;
     const start = (studentPage - 1) * STUDENT_PAGE_SIZE;
@@ -2673,6 +2661,7 @@ function resizeImage(dataUrl, maxWidth = 200, maxHeight = 200, quality = 0.7) {
 
 function previewAvatar(input) {
     const preview = document.getElementById('sfAvatarPreview');
+    if (preview) preview.dataset.avatarCleared = 'false';
     if (input.files && input.files[0]) {
         const reader = new FileReader();
         reader.onload = async function(e) {
@@ -2686,7 +2675,7 @@ function previewAvatar(input) {
 
 function clearAvatar() {
     const preview = document.getElementById('sfAvatarPreview');
-    if (preview) preview.src = DEFAULT_AVATAR;
+    if (preview) { preview.src = DEFAULT_AVATAR; preview.dataset.avatarCleared = 'true'; }
     const input = document.getElementById('sfAvatarInput');
     if (input) input.value = '';
 }
@@ -2811,7 +2800,7 @@ async function addStudentToSupabase(data, avatarFile) {
         enrollment_date: data.enrollmentDate || null,
         status: data.status || 'Đang học',
         note: data.note,
-        avatar_url: avatarUrl
+        avatar_url: (avatarCleared && !avatarFile) ? null : avatarUrl
     };
 
     const { data: inserted, error } = await supabase
@@ -2911,7 +2900,7 @@ function openAddStudent() {
     });
 }
 
-async function updateStudentInSupabase(id, data, avatarFile) {
+async function updateStudentInSupabase(id, data, avatarFile, avatarCleared = false) {
     if (!requireEditPermission('sửa học sinh')) return;
     const existing = APP_STATE.students.find(s => s.id === id);
     if (!existing) throw new Error('Không tìm thấy học sinh');
@@ -2920,7 +2909,9 @@ async function updateStudentInSupabase(id, data, avatarFile) {
     const classId = classObj ? classObj.id : null;
 
     let avatarUrl = existing.avatar;
-    if (avatarFile) {
+    if (avatarCleared && !avatarFile) {
+        avatarUrl = DEFAULT_AVATAR;
+    } else if (avatarFile) {
         try {
             const reader = new FileReader();
             const base64 = await new Promise((resolve) => {
@@ -3013,7 +3004,7 @@ APP_STATE.scores[id][subject].quality = data.quality;
         enrollmentDate: data.enrollmentDate,
         status: data.status,
         note: data.note,
-        avatar: avatarUrl,
+        avatar: (avatarCleared && !avatarFile) ? DEFAULT_AVATAR : avatarUrl,
         grade: data.grade,
         class: data.class,
         class_id: classId
@@ -3025,43 +3016,53 @@ APP_STATE.scores[id][subject].quality = data.quality;
 function editStudent(id) {
     if (!requireEditPermission('sửa học sinh')) return;
     captureStudentViewState();
-    const student = APP_STATE.students.find(s => s.id === id);
-    if (!student) return;
-
-    const subject =
-    APP_STATE.studentSubject ||
-    APP_STATE.subjectCatalog?.[0]?.name ||
-    SUBJECTS[0];
-
-    const subjectScore = APP_STATE.scores[id]?.[subject] || {};
-
-    const studentForForm = {
-        ...student,
-        competence: subjectScore.competence || '',
-        quality: subjectScore.quality || ''
-    };
-
-    showModal('Sửa học sinh', getStudentFormHTML(studentForForm, true), 'Cập nhật', 'Hủy').then(async confirmed => {
-        if (confirmed) {
-            const data = getStudentFormData();
-            if (!data.fullName || !data.dob) {
-                showToast('Vui lòng điền đầy đủ thông tin!', 'error');
-                return;
-            }
-            const avatarInput = document.getElementById('sfAvatarInput');
-            const avatarFile = avatarInput && avatarInput.files.length ? avatarInput.files[0] : null;
-
-            try {
-                await updateStudentInSupabase(id, data, avatarFile);
-                showToast('Cập nhật thành công!');
-                renderPage('students');
-            } catch (err) {
-                showToast('Lỗi cập nhật: ' + err.message, 'error');
-            }
-        }
-    });
+    window.__studentInlineEditorId = id;
+    renderPage('students');
 }
 
+function closeStudentInlineEditor() {
+    captureStudentViewState();
+    window.__studentInlineEditorId = null;
+    renderPage('students');
+}
+
+function setStudentGenderFilter(gender) {
+    const el = document.getElementById('filterGender');
+    if (el) el.value = gender || '';
+    studentViewState.gender = gender || '';
+    studentPage = 1;
+    initStudentTable();
+}
+
+async function saveStudentInline(goNext = false) {
+    const id = window.__studentInlineEditorId;
+    if (!id) return;
+    const data = getStudentFormData();
+    if (!data.fullName || !data.dob) {
+        showToast('Vui lòng điền đầy đủ họ tên và ngày sinh!', 'error');
+        return;
+    }
+    const avatarInput = document.getElementById('sfAvatarInput');
+    const avatarFile = avatarInput && avatarInput.files.length ? avatarInput.files[0] : null;
+    const avatarCleared = document.getElementById('sfAvatarPreview')?.dataset?.avatarCleared === 'true';
+    const keepClass = document.getElementById('keepStudentClassAfterSave')?.checked !== false;
+    captureStudentViewState();
+    const originalClass = studentViewState.className;
+    try {
+        await updateStudentInSupabase(id, data, avatarFile, avatarCleared);
+        if (keepClass) studentViewState.className = originalClass || data.class || '';
+        showToast(`Đã lưu thành công${studentViewState.className ? ' - vẫn giữ lớp ' + studentViewState.className : ''}!`);
+        if (goNext) {
+            const currentList = getFilteredStudents();
+            const idx = currentList.findIndex(s => s.id === id);
+            const next = currentList[idx + 1] || currentList[idx - 1] || null;
+            window.__studentInlineEditorId = next?.id || null;
+        }
+        renderPage('students');
+    } catch (err) {
+        showToast('Lỗi cập nhật: ' + (err?.message || err), 'error');
+    }
+}
 function viewStudent(id) {
     const s = APP_STATE.students.find(st => st.id === id);
     if (!s) return;
@@ -5232,6 +5233,45 @@ function globalSearch() {
     `;
 }
 
+function renderPublicContentManager() {
+    if (!isAdmin()) {
+        return `<div class="card"><h3 class="card-title"><i class="fas fa-lock"></i> Nội dung website công khai</h3><p class="text-muted">Chỉ tài khoản Admin mới được quản trị nội dung công khai.</p></div>`;
+    }
+    return `
+      <div class="public-manager-page">
+        <div class="public-manager-hero">
+          <div class="public-manager-title-icon"><i class="fas fa-globe"></i></div>
+          <div>
+            <span class="public-manager-kicker">QUẢN LÝ NỘI DUNG</span>
+            <h2>Nội dung website công khai</h2>
+            <p>Quản lý và cập nhật Tin tức, Tài liệu, Hình ảnh, Video, Thông báo và Liên kết hiển thị trên cổng thông tin điện tử nhà trường.</p>
+          </div>
+          <button class="public-manager-open-site" onclick="showPublicSite()"><i class="fas fa-arrow-up-right-from-square"></i> Xem website</button>
+        </div>
+        <div class="public-admin-tabs public-manager-tabs">
+          <button class="btn btn-primary" data-public-admin-tab="post" onclick="showPublicContentEditor('post')"><i class="fas fa-newspaper"></i> Quản lý Tin tức</button>
+          <button class="btn btn-secondary" data-public-admin-tab="document" onclick="showPublicContentEditor('document')"><i class="fas fa-file-lines"></i> Quản lý Tài liệu</button>
+          <button class="btn btn-secondary" data-public-admin-tab="media" onclick="showPublicMediaEditor()"><i class="fas fa-photo-film"></i> Hình ảnh & Video</button>
+          <button class="btn btn-secondary" data-public-admin-tab="announcement" onclick="showPublicAnnouncementEditor()"><i class="fas fa-bullhorn"></i> Thông báo</button>
+          <button class="btn btn-secondary" data-public-admin-tab="link" onclick="showPublicLinkEditor()"><i class="fas fa-link"></i> Liên kết website</button>
+        </div>
+        <div id="publicContentAdminPanel" class="public-content-admin-panel public-manager-panel"><p class="text-muted">Đang tải nội dung...</p></div>
+      </div>`;
+}
+
+function initPublicContentManager() {
+    if (isAdmin()) showPublicContentEditor('post');
+}
+
+function setPublicManagerActiveTab(type) {
+    document.querySelectorAll('[data-public-admin-tab]').forEach(btn => {
+        const active = btn.dataset.publicAdminTab === type;
+        btn.classList.toggle('btn-primary', active);
+        btn.classList.toggle('btn-secondary', !active);
+        btn.classList.toggle('active', active);
+    });
+}
+
 function renderSettings() {
     const settings = APP_STATE.settings;
     const subjects = APP_STATE.allSubjectCatalog?.length
@@ -5267,16 +5307,11 @@ function renderSettings() {
             <div class="table-wrapper"><table><thead><tr><th>Môn học</th><th>Khối áp dụng</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>${subjectRows}</tbody></table></div>
             ${isAdmin() ? `
             <hr class="my-3">
-            <h4><i class="fas fa-globe"></i> Nội dung website công khai</h4>
-            <p class="text-muted">Admin có thể thêm, sửa, ẩn/hiện và xóa Tin tức/Thông báo hoặc Tài liệu. Nội dung đã bật công khai sẽ xuất hiện ngay trên trang chủ.</p>
-            <div class="public-admin-tabs">
-                <button class="btn btn-primary btn-sm" onclick="showPublicContentEditor('post')"><i class="fas fa-newspaper"></i> Quản lý Tin tức</button>
-                <button class="btn btn-secondary btn-sm" onclick="showPublicContentEditor('document')"><i class="fas fa-file-lines"></i> Quản lý Tài liệu</button>
-                <button class="btn btn-secondary btn-sm" onclick="showPublicMediaEditor()"><i class="fas fa-photo-film"></i> Hình ảnh & Video</button>
-                <button class="btn btn-secondary btn-sm" onclick="showPublicAnnouncementEditor()"><i class="fas fa-bullhorn"></i> Thông báo</button>
-                <button class="btn btn-secondary btn-sm" onclick="showPublicLinkEditor()"><i class="fas fa-link"></i> Liên kết website</button>
+            <div class="settings-public-shortcut">
+              <span class="settings-public-icon"><i class="fas fa-globe"></i></span>
+              <div><h4>Nội dung website công khai</h4><p>Phần quản trị Tin tức, Tài liệu, Hình ảnh & Video, Thông báo và Liên kết đã được tách thành module riêng để thao tác rõ ràng hơn.</p></div>
+              <button class="btn btn-primary" onclick="renderPage('public-content')"><i class="fas fa-arrow-up-right-from-square"></i> Mở module nội dung</button>
             </div>
-            <div id="publicContentAdminPanel" class="public-content-admin-panel"><p class="text-muted">Chọn một nhóm nội dung để quản lý.</p></div>
             ` : ''}
             <hr class="my-3">
             <h4><i class="fas fa-database"></i> Sao lưu & khôi phục</h4>
@@ -5298,7 +5333,7 @@ function renderSettings() {
         </div>`;
 }
 
-function initSettings() { loadUserRolePanel(); if (isAdmin()) showPublicContentEditor('post'); }
+function initSettings() { loadUserRolePanel(); }
 function initSearch() {}
 
 async function saveSettings() {
@@ -5884,6 +5919,7 @@ function closePublicPostDetail() {
 }
 async function showPublicContentEditor(type='post') {
     if (!isAdmin()) return;
+    setPublicManagerActiveTab(type);
     const panel=document.getElementById('publicContentAdminPanel'); if(!panel) return;
     const isPost=type==='post', table=isPost?'app3_public_posts':'app3_public_documents';
     panel.innerHTML='<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Đang tải...</p>';
@@ -6129,6 +6165,7 @@ function publicAdminLoadError(panel,error,feature){
 }
 async function showPublicAnnouncementEditor(){
     if(!isAdmin()) return;
+    setPublicManagerActiveTab('announcement');
     const panel=document.getElementById('publicContentAdminPanel'); if(!panel)return;
     panel.innerHTML='<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Đang tải thông báo...</p>';
     const {data,error}=await supabase.from('app3_public_announcements').select('*').order('is_pinned',{ascending:false}).order('sort_order',{ascending:true}).order('created_at',{ascending:false});
@@ -6175,6 +6212,7 @@ async function deletePublicAnnouncement(id){
 }
 async function showPublicLinkEditor(){
     if(!isAdmin())return;
+    setPublicManagerActiveTab('link');
     const panel=document.getElementById('publicContentAdminPanel'); if(!panel)return;
     panel.innerHTML='<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Đang tải liên kết...</p>';
     const {data,error}=await supabase.from('app3_public_links').select('*').order('sort_order',{ascending:true}).order('created_at',{ascending:false});
@@ -6299,6 +6337,7 @@ function updatePublicMediaFormByType(){
 }
 async function showPublicMediaEditor(){
     if(!isAdmin())return;
+    setPublicManagerActiveTab('media');
     const panel=document.getElementById('publicContentAdminPanel'); if(!panel)return;
     panel.innerHTML='<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Đang tải thư viện...</p>';
     const {data,error}=await supabase.from('app3_public_media').select('*').order('sort_order',{ascending:true}).order('created_at',{ascending:false});
@@ -6379,6 +6418,13 @@ async function deletePublicMedia(id){
 // ============================================================
 // WEBSITE PUBLIC - BƯỚC 140
 // ============================================================
+function getRealtimeSchoolYear(date = new Date()) {
+    const y = date.getFullYear();
+    const month = date.getMonth();
+    const startYear = month >= 8 ? y : y - 1; // đổi năm học từ 01/09
+    return `${startYear}-${startYear + 1}`;
+}
+
 function showPublicSite() {
     const publicSite = document.getElementById('publicSite');
     const loginScreen = document.getElementById('loginScreen');
@@ -6513,7 +6559,7 @@ function initPublicWebsite() {
     // BƯỚC 148.5.8: cố định năm học hiện hành trên website công khai.
     // Không đọc schoolYear cũ từ localStorage để tránh 2025-2026 ghi đè nội dung mới.
     const publicSchoolYearEl = document.getElementById('publicSchoolYear');
-    if (publicSchoolYearEl) publicSchoolYearEl.textContent = '2026-2027';
+    if (publicSchoolYearEl) publicSchoolYearEl.textContent = getRealtimeSchoolYear();
 
     // Đồng bộ lại cấu hình cục bộ để các lần mở sau không còn giữ năm học cũ.
     try {
@@ -7601,5 +7647,11 @@ document.addEventListener('DOMContentLoaded', () => {
 window.showPublicContentEditor=showPublicContentEditor; window.savePublicContent=savePublicContent; window.editPublicContent=editPublicContent; window.deletePublicContent=deletePublicContent; window.resetPublicContentForm=resetPublicContentForm; window.openPublicPostDetail=openPublicPostDetail; window.closePublicPostDetail=closePublicPostDetail; window.handlePublicPostImageSelection=handlePublicPostImageSelection; window.clearPublicPostImage=clearPublicPostImage; window.showPublicMediaEditor=showPublicMediaEditor; window.updatePublicMediaFormByType=updatePublicMediaFormByType; window.savePublicMedia=savePublicMedia; window.editPublicMedia=editPublicMedia; window.deletePublicMedia=deletePublicMedia; window.resetPublicMediaForm=resetPublicMediaForm; window.openPublicMediaModal=openPublicMediaModal; window.closePublicMediaModal=closePublicMediaModal;
 
 window.showPublicAnnouncementEditor=showPublicAnnouncementEditor; window.editPublicAnnouncement=editPublicAnnouncement; window.savePublicAnnouncement=savePublicAnnouncement; window.deletePublicAnnouncement=deletePublicAnnouncement; window.showPublicLinkEditor=showPublicLinkEditor; window.editPublicLink=editPublicLink; window.savePublicLink=savePublicLink; window.deletePublicLink=deletePublicLink;
+
+
+// BƯỚC 149.11: Các hàm được gọi trực tiếp từ thuộc tính onclick trong HTML
+// phải được công khai trên window vì script.js chạy dưới dạng ES module.
+window.renderPage = renderPage;
+window.saveStudentInline = saveStudentInline;
 
 window.publicVideoError = publicVideoError;

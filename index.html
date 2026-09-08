@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn - Hệ thống quản lý học sinh</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=1498">
+    <link rel="stylesheet" href="style.css?v=14910">
     <!-- Thêm thư viện XLSX để xuất file Excel -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <!-- ExcelJS: xuất file VNEDU có định dạng, đường viền, căn lề -->
@@ -72,7 +72,7 @@
                 <div class="hero-wave"></div>
             </section>
 
-            <section id="chuc-nang" class="site-section feature-section">
+            <section id="chuc-nang" class="site-section feature-section public-management-feature">
                 <div class="site-container">
                     <div class="section-heading">
                         <span>HỆ THỐNG QUẢN LÝ</span>
@@ -268,14 +268,15 @@
         <!-- Sidebar -->
         <aside id="sidebar" class="sidebar">
             <div class="sidebar-header">
-                <div class="logo">
-                    <i class="fas fa-user-graduate"></i>
-                    <span>QLHS</span>
+                <div class="logo admin-school-logo">
+                    <img src="assets/logo-lai-son.png" alt="Logo Lại Sơn">
+                    <span><b>LẠI SƠN</b><small>Quản trị hệ thống</small></span>
                 </div>
                 <button id="toggleSidebar" class="sidebar-toggle"><i class="fas fa-bars"></i></button>
             </div>
             <nav class="nav-menu">
                 <a href="#" class="nav-item active" data-page="dashboard"><i class="fas fa-chart-pie"></i> <span>Dashboard</span></a>
+                <a href="#" class="nav-item admin-public-nav" data-page="public-content"><i class="fas fa-globe"></i> <span>Nội dung website</span></a>
                 <a href="#" class="nav-item" data-page="classes"><i class="fas fa-chalkboard-teacher"></i> <span>Lớp</span></a>
                 <a href="#" class="nav-item" data-page="students"><i class="fas fa-user-graduate"></i> <span>Học sinh</span></a>
                 <a href="#" class="nav-item" data-page="search"><i class="fas fa-search"></i> <span>Tìm kiếm</span></a>
@@ -316,7 +317,7 @@
     </div>
 
     <script type="module" src="supabase.js?v=14858"></script>
-    <script type="module" src="script.js?v=1498"></script>
+    <script type="module" src="script.js?v=14911"></script>
     <div id="sidebarOverlay" class="sidebar-overlay"></div>
 </body>
 </html>
