@@ -5926,28 +5926,68 @@ function publicVideoError(el){
     const link=el?.dataset?.fallback||'';
     box.innerHTML=`<div class="public-video-fallback"><i class="fas fa-triangle-exclamation"></i><strong>Trình duyệt chưa phát được video này</strong><span>Nếu tệp là MOV/HEVC, hãy đổi sang MP4 H.264 + AAC để phát ổn định trên web.</span>${link?`<a class="btn btn-primary btn-sm" href="${link}" target="_blank" rel="noopener"><i class="fas fa-up-right-from-square"></i> Mở video</a>`:''}</div>`;
 }
+let PUBLIC_VIDEO_CATEGORY='Tất cả';
+let PUBLIC_VIDEO_VISIBLE=[];
+function publicVideoPoster(item){
+    if(item?.thumbnail_url) return publicSafeMediaUrl(item.thumbnail_url);
+    if(item?.media_type==='youtube'){
+        const id=publicYouTubeId(item.media_url);
+        return id?`https://img.youtube.com/vi/${id}/maxresdefault.jpg`:'';
+    }
+    return '';
+}
 function renderPublicVideos(items=[]) {
     const grid=document.getElementById('publicVideoGrid');
+    const toolbar=document.getElementById('publicVideoToolbar');
     if(!grid) return;
-    if(!items.length){
-        grid.innerHTML='<div class="public-empty-state"><i class="fas fa-circle-play"></i><strong>Chưa có video công khai</strong><span>Admin có thể thêm YouTube, video URL hoặc tải MP4/WebM từ máy.</span></div>';
+    const all=(Array.isArray(items)?items:[]).filter(x=>x&&(x.media_type==='video'||x.media_type==='youtube'));
+    const categories=['Tất cả',...new Set(all.map(x=>String(x.category||'Khác').trim()).filter(Boolean))];
+    if(PUBLIC_VIDEO_CATEGORY!=='Tất cả'&&!categories.includes(PUBLIC_VIDEO_CATEGORY)) PUBLIC_VIDEO_CATEGORY='Tất cả';
+    PUBLIC_VIDEO_VISIBLE=PUBLIC_VIDEO_CATEGORY==='Tất cả'?all:all.filter(x=>String(x.category||'Khác').trim()===PUBLIC_VIDEO_CATEGORY);
+    if(toolbar) toolbar.innerHTML=`<div class="public-video-filter-label"><i class="fas fa-clapperboard"></i><span>Chuyên mục video</span></div><div class="public-video-filter-chips">${categories.map(cat=>`<button type="button" class="${cat===PUBLIC_VIDEO_CATEGORY?'active':''}" onclick="setPublicVideoCategory('${publicEscape(cat).replace(/'/g,'&#39;')}')">${publicEscape(cat)}</button>`).join('')}</div><span class="public-video-count">${PUBLIC_VIDEO_VISIBLE.length} video</span>`;
+    if(!PUBLIC_VIDEO_VISIBLE.length){
+        grid.innerHTML='<div class="public-empty-state"><i class="fas fa-circle-play"></i><strong>Chưa có video trong chuyên mục này</strong><span>Hãy chọn chuyên mục khác hoặc quay lại Tất cả.</span></div>';
         return;
     }
-    grid.innerHTML=items.slice(0,8).map(item=>{
+    grid.innerHTML=PUBLIC_VIDEO_VISIBLE.slice(0,16).map((item,idx)=>{
         const title=publicEscape(item.title||'Video hoạt động');
+        const cat=publicEscape(item.category||'Hoạt động');
+        let poster=publicVideoPoster(item);
         if(item.media_type==='youtube'){
-            const id=publicYouTubeId(item.media_url);
-            if(!id) return '';
-            const watch=`https://www.youtube.com/watch?v=${id}`;
-            const thumb=`https://img.youtube.com/vi/${id}/maxresdefault.jpg`;
-            const fallbackThumb=`https://img.youtube.com/vi/${id}/hqdefault.jpg`;
-            return `<article class="public-video-card youtube-thumb-card"><a class="public-youtube-thumb" href="${watch}" target="_blank" rel="noopener" aria-label="Mở video ${title} trên YouTube"><img src="${thumb}" alt="Ảnh bìa ${title}" loading="lazy" onerror="this.onerror=null;this.src='${fallbackThumb}'"><span class="public-youtube-play"><i class="fab fa-youtube"></i></span></a><div class="public-video-info"><small><i class="fab fa-youtube"></i> YouTube${item.category?' · '+publicEscape(item.category):''}</small><h3>${title}</h3>${item.description?`<p>${publicEscape(item.description)}</p>`:''}<a class="public-video-open-link" href="${watch}" target="_blank" rel="noopener"><i class="fab fa-youtube"></i> Xem trên YouTube</a></div></article>`;
+            const id=publicYouTubeId(item.media_url); if(!id)return '';
+            const fallback=`https://img.youtube.com/vi/${id}/hqdefault.jpg`;
+            return `<article class="public-video-card public-video-clickable ${idx===0?'public-video-featured':''}" role="button" tabindex="0" onclick="openPublicVideoModal('${item.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPublicVideoModal('${item.id}')}" aria-label="Xem ${title}"><div class="public-video-cover"><img src="${poster}" alt="Ảnh bìa ${title}" loading="lazy" onerror="this.onerror=null;this.src='${fallback}'"><span class="public-video-play"><i class="fas fa-play"></i></span><span class="public-video-source youtube"><i class="fab fa-youtube"></i> YouTube</span></div><div class="public-video-info"><small><i class="far fa-folder-open"></i> ${cat}</small><h3>${title}</h3>${item.description?`<p>${publicEscape(item.description)}</p>`:''}<span class="public-video-open-link">Xem video <i class="fas fa-arrow-right"></i></span></div></article>`;
         }
-        const url=publicSafeMediaUrl(item.media_url);
-        if(!url) return '';
-        const mime=publicVideoMime(item.media_url);
-        return `<article class="public-video-card"><div class="public-video-frame"><video controls preload="metadata" playsinline data-fallback="${url}" onerror="publicVideoError(this)"><source src="${url}" type="${mime}">Trình duyệt không hỗ trợ video.</video></div><div class="public-video-info"><small><i class="fas fa-video"></i> Video${item.category?' · '+publicEscape(item.category):''}</small><h3>${title}</h3>${item.description?`<p>${publicEscape(item.description)}</p>`:''}<a class="public-video-open-link" href="${url}" target="_blank" rel="noopener"><i class="fas fa-up-right-from-square"></i> Mở video</a></div></article>`;
+        const url=publicSafeMediaUrl(item.media_url); if(!url)return '';
+        return `<article class="public-video-card public-video-clickable ${idx===0?'public-video-featured':''}" role="button" tabindex="0" onclick="openPublicVideoModal('${item.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPublicVideoModal('${item.id}')}" aria-label="Xem ${title}"><div class="public-video-cover ${poster?'':'no-poster'}">${poster?`<img src="${poster}" alt="Ảnh bìa ${title}" loading="lazy">`:`<video preload="metadata" muted playsinline><source src="${url}" type="${publicVideoMime(item.media_url)}"></video>`}<span class="public-video-play"><i class="fas fa-play"></i></span><span class="public-video-source"><i class="fas fa-video"></i> Video</span></div><div class="public-video-info"><small><i class="far fa-folder-open"></i> ${cat}</small><h3>${title}</h3>${item.description?`<p>${publicEscape(item.description)}</p>`:''}<span class="public-video-open-link">Xem video <i class="fas fa-arrow-right"></i></span></div></article>`;
     }).join('');
+}
+function setPublicVideoCategory(category='Tất cả'){
+    PUBLIC_VIDEO_CATEGORY=String(category||'Tất cả');
+    renderPublicVideos(PUBLIC_MEDIA_CACHE.filter(x=>x.media_type==='video'||x.media_type==='youtube'));
+}
+function openPublicVideoModal(id){
+    const modal=document.getElementById('publicVideoModal'), body=document.getElementById('publicVideoModalBody');
+    const item=PUBLIC_MEDIA_CACHE.find(x=>String(x.id)===String(id));
+    if(!modal||!body||!item)return;
+    const title=publicEscape(item.title||'Video hoạt động'), cat=publicEscape(item.category||'Hoạt động');
+    if(item.media_type==='youtube'){
+        const yid=publicYouTubeId(item.media_url); if(!yid)return;
+        const watch=`https://www.youtube.com/watch?v=${yid}`;
+        const thumb=`https://img.youtube.com/vi/${yid}/maxresdefault.jpg`;
+        const fallback=`https://img.youtube.com/vi/${yid}/hqdefault.jpg`;
+        body.innerHTML=`<div class="public-video-modal-player youtube-modal"><img src="${thumb}" alt="Ảnh bìa ${title}" onerror="this.onerror=null;this.src='${fallback}'"><a href="${watch}" target="_blank" rel="noopener" class="public-video-modal-youtube"><i class="fab fa-youtube"></i><span>Phát trên YouTube</span></a></div><div class="public-video-modal-copy"><small><i class="fab fa-youtube"></i> YouTube · ${cat}</small><h2>${title}</h2>${item.description?`<p>${publicEscape(item.description)}</p>`:''}<a class="btn btn-primary" href="${watch}" target="_blank" rel="noopener"><i class="fab fa-youtube"></i> Xem trên YouTube</a></div>`;
+    }else{
+        const url=publicSafeMediaUrl(item.media_url); if(!url)return;
+        body.innerHTML=`<div class="public-video-modal-player"><video controls autoplay playsinline preload="metadata" data-fallback="${url}" onerror="publicVideoError(this)"><source src="${url}" type="${publicVideoMime(item.media_url)}">Trình duyệt không hỗ trợ video.</video></div><div class="public-video-modal-copy"><small><i class="fas fa-video"></i> Video · ${cat}</small><h2>${title}</h2>${item.description?`<p>${publicEscape(item.description)}</p>`:''}<a class="btn btn-secondary" href="${url}" target="_blank" rel="noopener"><i class="fas fa-up-right-from-square"></i> Mở tệp video</a></div>`;
+    }
+    modal.classList.remove('hidden'); modal.setAttribute('aria-hidden','false'); document.body.classList.add('public-modal-open');
+}
+function closePublicVideoModal(){
+    const modal=document.getElementById('publicVideoModal'), body=document.getElementById('publicVideoModalBody');
+    if(body){ const v=body.querySelector('video'); if(v){v.pause();v.removeAttribute('src');} body.innerHTML=''; }
+    if(modal){modal.classList.add('hidden');modal.setAttribute('aria-hidden','true');}
+    document.body.classList.remove('public-modal-open');
 }
 function openPublicMediaModal(id){
     const modal=document.getElementById('publicMediaModal');
@@ -7750,6 +7790,7 @@ window.renderPage = renderPage;
 window.saveStudentInline = saveStudentInline;
 
 window.publicVideoError = publicVideoError;
+window.setPublicVideoCategory = setPublicVideoCategory; window.openPublicVideoModal = openPublicVideoModal; window.closePublicVideoModal = closePublicVideoModal;
 window.setPublicNewsCategory = setPublicNewsCategory;
 window.setPublicGalleryCategory = setPublicGalleryCategory; window.stepPublicGallery = stepPublicGallery;
 

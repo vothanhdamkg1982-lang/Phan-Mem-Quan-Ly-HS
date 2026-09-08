@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn - Hệ thống quản lý học sinh</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=15031">
+    <link rel="stylesheet" href="style.css?v=1504">
     <!-- Thêm thư viện XLSX để xuất file Excel -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <!-- ExcelJS: xuất file VNEDU có định dạng, đường viền, căn lề -->
@@ -131,6 +131,7 @@
             <section id="video" class="site-section public-video-section">
                 <div class="site-container">
                     <div class="section-heading"><span>VIDEO HOẠT ĐỘNG</span><h2>Góc nhìn sinh động</h2><p>Hỗ trợ video tải lên, video bằng đường dẫn và YouTube; người xem không cần đăng nhập.</p></div>
+                    <div id="publicVideoToolbar" class="public-video-toolbar" aria-label="Bộ lọc video"></div>
                     <div id="publicVideoGrid" class="public-video-grid"><div class="public-content-loading"><i class="fas fa-spinner fa-spin"></i> Đang tải video...</div></div>
                 </div>
             </section>
@@ -169,6 +170,13 @@
             <div class="site-container footer-bottom"><span>© 2026 Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn.</span><span>Đặc khu Kiên Hải, tỉnh An Giang</span></div>
         </footer>
         <button id="publicBackToTop" class="public-back-to-top" aria-label="Lên đầu trang"><i class="fas fa-arrow-up"></i></button>
+
+        <div id="publicVideoModal" class="public-post-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Xem video hoạt động">
+            <div class="public-post-modal-card public-video-modal-card">
+                <button type="button" class="public-post-modal-close" onclick="closePublicVideoModal()" aria-label="Đóng"><i class="fas fa-xmark"></i></button>
+                <div id="publicVideoModalBody" class="public-video-modal-body"></div>
+            </div>
+        </div>
         <div id="publicMediaModal" class="public-post-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Xem hình ảnh">
             <div class="public-post-modal-backdrop" onclick="closePublicMediaModal()"></div>
             <div class="public-media-modal-shell">
@@ -326,7 +334,7 @@
     </div>
 
     <script type="module" src="supabase.js?v=14858"></script>
-    <script type="module" src="script.js?v=15031"></script>
+    <script type="module" src="script.js?v=1504"></script>
     <div id="sidebarOverlay" class="sidebar-overlay"></div>
 </body>
 </html>
