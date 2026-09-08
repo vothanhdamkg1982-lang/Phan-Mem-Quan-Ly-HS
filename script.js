@@ -5273,6 +5273,8 @@ function renderSettings() {
                 <button class="btn btn-primary btn-sm" onclick="showPublicContentEditor('post')"><i class="fas fa-newspaper"></i> Quản lý Tin tức</button>
                 <button class="btn btn-secondary btn-sm" onclick="showPublicContentEditor('document')"><i class="fas fa-file-lines"></i> Quản lý Tài liệu</button>
                 <button class="btn btn-secondary btn-sm" onclick="showPublicMediaEditor()"><i class="fas fa-photo-film"></i> Hình ảnh & Video</button>
+                <button class="btn btn-secondary btn-sm" onclick="showPublicAnnouncementEditor()"><i class="fas fa-bullhorn"></i> Thông báo</button>
+                <button class="btn btn-secondary btn-sm" onclick="showPublicLinkEditor()"><i class="fas fa-link"></i> Liên kết website</button>
             </div>
             <div id="publicContentAdminPanel" class="public-content-admin-panel"><p class="text-muted">Chọn một nhóm nội dung để quản lý.</p></div>
             ` : ''}
@@ -5745,6 +5747,8 @@ async function loadPublicWebsiteContent() {
         if (galleryGrid) galleryGrid.innerHTML = '<div class="public-empty-state"><i class="fas fa-images"></i><strong>Thư viện ảnh chưa được kích hoạt</strong><span>Admin chạy SQL Bước 149.5 một lần để bật chức năng.</span></div>';
         if (videoGrid) videoGrid.innerHTML = '<div class="public-empty-state"><i class="fas fa-circle-play"></i><strong>Thư viện video chưa được kích hoạt</strong><span>Admin chạy SQL Bước 149.5 một lần để bật chức năng.</span></div>';
     }
+
+    await loadPublicUtilityContent();
 }
 
 function publicYouTubeId(url='') {
@@ -6047,6 +6051,171 @@ async function deletePublicContent(id,type){
     showToast('Đã xóa nội dung.');
     await showPublicContentEditor(type);
     await loadPublicWebsiteContent();
+}
+
+
+// ============================================================
+// WEBSITE PUBLIC - BƯỚC 149.8: THÔNG BÁO + LIÊN KẾT WEBSITE ĐỘNG
+// ============================================================
+const PUBLIC_LINK_ICON_WHITELIST = new Set(['school','landmark','book-open','globe','video','graduation-cap','link','building-columns','cloud','file-lines']);
+function publicLinkIcon(value='link') {
+    const icon=String(value||'link').trim().replace(/^fa[srb]?\s+fa-/,'').replace(/^fa-/,'');
+    return PUBLIC_LINK_ICON_WHITELIST.has(icon)?icon:'link';
+}
+function publicSafeExternalUrl(value='') {
+    const text=String(value||'').trim();
+    if(!text) return '';
+    try {
+        const u=new URL(text);
+        if(!['http:','https:'].includes(u.protocol)) return '';
+        return publicEscape(u.href);
+    } catch { return ''; }
+}
+function renderPublicAnnouncements(items=[]) {
+    const box=document.getElementById('publicAnnouncementList');
+    if(!box) return;
+    const list=(items||[]).slice(0,3);
+    if(!list.length){
+        box.innerHTML='<span class="u-utility-empty">Chưa có thông báo mới.</span>';
+        return;
+    }
+    box.innerHTML=list.map(x=>{
+        const href=publicSafeExternalUrl(x.link_url);
+        const tag=x.is_pinned?'<i class="fas fa-thumbtack" title="Đã ghim"></i>':'';
+        const body=`<span class="u-announcement-title">${tag}${publicEscape(x.title||'Thông báo')}</span><small>${publicDate(x.published_at||x.created_at)}</small>`;
+        return href?`<a class="u-announcement-item" href="${href}" target="_blank" rel="noopener noreferrer">${body}</a>`:`<div class="u-announcement-item">${body}</div>`;
+    }).join('');
+}
+function renderPublicLinks(items=[]) {
+    const grid=document.getElementById('publicLinksGrid');
+    const quick=document.getElementById('publicQuickLinks');
+    const list=(items||[]).filter(x=>publicSafeExternalUrl(x.url));
+    if(grid){
+        if(!list.length) grid.innerHTML='<div class="public-empty-state"><i class="fas fa-link"></i><strong>Chưa có liên kết công khai</strong><span>Admin có thể thêm các website giáo dục hữu ích.</span></div>';
+        else grid.innerHTML=list.map(x=>{
+            const href=publicSafeExternalUrl(x.url), icon=publicLinkIcon(x.icon);
+            return `<a href="${href}" target="_blank" rel="noopener noreferrer"><i class="fas fa-${icon}"></i><div><b>${publicEscape(x.title||'Liên kết')}</b><span>${publicEscape(x.description||'Mở website')}</span></div><i class="fas fa-arrow-up-right-from-square"></i></a>`;
+        }).join('');
+    }
+    if(quick){
+        const top=list.slice(0,3);
+        quick.innerHTML=top.length?top.map(x=>`<a href="${publicSafeExternalUrl(x.url)}" target="_blank" rel="noopener noreferrer"><i class="fas fa-${publicLinkIcon(x.icon)}"></i><span>${publicEscape(x.title||'Liên kết')}</span></a>`).join(''):'<span class="u-utility-empty">Chưa có liên kết.</span>';
+    }
+}
+function renderPublicUtilityFallback(){
+    renderPublicLinks([
+        {title:'VNEDU',description:'Hệ thống đang sử dụng của nhà trường',url:'https://ucnnzccazsgdkiengiang.vnedu.vn/v5/',icon:'school'},
+        {title:'Bộ Giáo dục và Đào tạo',description:'Cổng thông tin điện tử',url:'https://moet.gov.vn/',icon:'landmark'}
+    ]);
+    renderPublicAnnouncements([]);
+}
+async function loadPublicUtilityContent(){
+    try{
+        const [annRes,linkRes]=await Promise.all([
+            supabase.from('app3_public_announcements').select('*').eq('is_published',true).order('is_pinned',{ascending:false}).order('sort_order',{ascending:true}).order('published_at',{ascending:false}).limit(8),
+            supabase.from('app3_public_links').select('*').eq('is_published',true).order('sort_order',{ascending:true}).order('created_at',{ascending:false}).limit(20)
+        ]);
+        if(annRes.error) throw annRes.error;
+        if(linkRes.error) throw linkRes.error;
+        renderPublicAnnouncements(annRes.data||[]);
+        renderPublicLinks(linkRes.data||[]);
+    }catch(err){
+        console.warn('Chưa tải được thông báo/liên kết công khai:',err);
+        renderPublicUtilityFallback();
+    }
+}
+function publicAdminLoadError(panel,error,feature){
+    panel.innerHTML=`<div class="public-empty-state"><i class="fas fa-database"></i><strong>Chưa kích hoạt ${publicEscape(feature)}</strong><span>Hãy chạy SQL Bước 149.8 trong Supabase trước. ${publicEscape(error?.message||'')}</span></div>`;
+}
+async function showPublicAnnouncementEditor(){
+    if(!isAdmin()) return;
+    const panel=document.getElementById('publicContentAdminPanel'); if(!panel)return;
+    panel.innerHTML='<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Đang tải thông báo...</p>';
+    const {data,error}=await supabase.from('app3_public_announcements').select('*').order('is_pinned',{ascending:false}).order('sort_order',{ascending:true}).order('created_at',{ascending:false});
+    if(error){publicAdminLoadError(panel,error,'Thông báo công khai');return;}
+    panel.innerHTML=`<div class="public-admin-form">
+      <input type="hidden" id="publicAnnouncementEditId">
+      <div class="form-grid"><div class="form-group"><label>Tiêu đề thông báo</label><input id="publicAnnouncementTitle" placeholder="Ví dụ: Thông báo họp phụ huynh"></div><div class="form-group"><label>Thứ tự</label><input id="publicAnnouncementSort" type="number" min="0" step="1" value="0"></div></div>
+      <div class="form-group"><label>Nội dung ngắn</label><textarea id="publicAnnouncementContent" rows="3" placeholder="Thông tin ngắn gọn hiển thị cho người xem"></textarea></div>
+      <div class="form-group"><label>Liên kết chi tiết (không bắt buộc)</label><input id="publicAnnouncementUrl" type="url" placeholder="https://..."></div>
+      <div class="form-grid"><label class="switch-inline"><input type="checkbox" id="publicAnnouncementPinned"> <span>Ghim lên đầu</span></label><label class="switch-inline"><input type="checkbox" id="publicAnnouncementPublished" checked> <span>Công khai trên website</span></label></div>
+      <div class="flex gap-2 mt-2"><button class="btn btn-primary btn-sm" onclick="savePublicAnnouncement()"><i class="fas fa-save"></i> Lưu thông báo</button><button class="btn btn-secondary btn-sm" onclick="showPublicAnnouncementEditor()">Làm mới</button></div>
+    </div><div class="table-wrapper mt-2"><table><thead><tr><th>Thông báo</th><th>Ghim</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>${(data||[]).map(x=>`<tr><td><strong>${publicEscape(x.title||'')}</strong><br><small>${publicEscape(x.content||'')}</small></td><td>${x.is_pinned?'Có':'Không'}</td><td>${x.is_published?'Công khai':'Đang ẩn'}</td><td><button class="btn btn-primary btn-sm" onclick='editPublicAnnouncement(${JSON.stringify(JSON.stringify(x))})'><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="deletePublicAnnouncement('${x.id}')"><i class="fas fa-trash"></i></button></td></tr>`).join('')||'<tr><td colspan="4" class="text-muted">Chưa có thông báo.</td></tr>'}</tbody></table></div>`;
+}
+function editPublicAnnouncement(json){
+    const x=JSON.parse(json);
+    document.getElementById('publicAnnouncementEditId').value=x.id||'';
+    document.getElementById('publicAnnouncementTitle').value=x.title||'';
+    document.getElementById('publicAnnouncementContent').value=x.content||'';
+    document.getElementById('publicAnnouncementUrl').value=x.link_url||'';
+    document.getElementById('publicAnnouncementSort').value=Number(x.sort_order)||0;
+    document.getElementById('publicAnnouncementPinned').checked=!!x.is_pinned;
+    document.getElementById('publicAnnouncementPublished').checked=x.is_published!==false;
+}
+async function savePublicAnnouncement(){
+    if(!isAdmin())return;
+    const id=document.getElementById('publicAnnouncementEditId')?.value||'';
+    const title=document.getElementById('publicAnnouncementTitle')?.value.trim()||'';
+    const content=document.getElementById('publicAnnouncementContent')?.value.trim()||'';
+    const typedUrl=document.getElementById('publicAnnouncementUrl')?.value.trim()||'';
+    if(!title){showToast('Vui lòng nhập tiêu đề thông báo.','error');return;}
+    if(typedUrl&&!publicSafeExternalUrl(typedUrl)){showToast('Liên kết thông báo phải bắt đầu bằng http:// hoặc https://','error');return;}
+    const payload={title,content:content||null,link_url:typedUrl||null,is_pinned:!!document.getElementById('publicAnnouncementPinned')?.checked,is_published:!!document.getElementById('publicAnnouncementPublished')?.checked,sort_order:parseInt(document.getElementById('publicAnnouncementSort')?.value||'0',10)||0,updated_at:new Date().toISOString()};
+    if(!id) payload.published_at=new Date().toISOString();
+    const q=id?supabase.from('app3_public_announcements').update(payload).eq('id',id):supabase.from('app3_public_announcements').insert(payload);
+    const {error}=await q;
+    if(error){showToast('Lỗi lưu thông báo: '+error.message,'error');return;}
+    showToast('Đã lưu thông báo công khai!'); await showPublicAnnouncementEditor(); await loadPublicUtilityContent();
+}
+async function deletePublicAnnouncement(id){
+    if(!isAdmin()||!confirm('Xóa thông báo này?'))return;
+    const {error}=await supabase.from('app3_public_announcements').delete().eq('id',id);
+    if(error){showToast('Lỗi xóa thông báo: '+error.message,'error');return;}
+    showToast('Đã xóa thông báo.'); await showPublicAnnouncementEditor(); await loadPublicUtilityContent();
+}
+async function showPublicLinkEditor(){
+    if(!isAdmin())return;
+    const panel=document.getElementById('publicContentAdminPanel'); if(!panel)return;
+    panel.innerHTML='<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Đang tải liên kết...</p>';
+    const {data,error}=await supabase.from('app3_public_links').select('*').order('sort_order',{ascending:true}).order('created_at',{ascending:false});
+    if(error){publicAdminLoadError(panel,error,'Liên kết website');return;}
+    panel.innerHTML=`<div class="public-admin-form">
+      <input type="hidden" id="publicLinkEditId">
+      <div class="form-grid"><div class="form-group"><label>Tên website</label><input id="publicLinkTitle" placeholder="Ví dụ: VNEDU"></div><div class="form-group"><label>Biểu tượng</label><select id="publicLinkIcon"><option value="school">Trường học</option><option value="landmark">Cơ quan</option><option value="book-open">Học liệu</option><option value="graduation-cap">Giáo dục</option><option value="globe">Website</option><option value="video">Video</option><option value="cloud">Dịch vụ trực tuyến</option><option value="link">Liên kết</option></select></div></div>
+      <div class="form-group"><label>Mô tả</label><input id="publicLinkDescription" placeholder="Mô tả ngắn về website"></div>
+      <div class="form-group"><label>Đường dẫn</label><input id="publicLinkUrl" type="url" placeholder="https://..."></div>
+      <div class="form-grid"><div class="form-group"><label>Thứ tự</label><input id="publicLinkSort" type="number" min="0" step="1" value="0"></div><label class="switch-inline"><input type="checkbox" id="publicLinkPublished" checked> <span>Công khai trên website</span></label></div>
+      <div class="flex gap-2 mt-2"><button class="btn btn-primary btn-sm" onclick="savePublicLink()"><i class="fas fa-save"></i> Lưu liên kết</button><button class="btn btn-secondary btn-sm" onclick="showPublicLinkEditor()">Làm mới</button></div>
+    </div><div class="table-wrapper mt-2"><table><thead><tr><th>Website</th><th>URL</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>${(data||[]).map(x=>`<tr><td><strong><i class="fas fa-${publicLinkIcon(x.icon)}"></i> ${publicEscape(x.title||'')}</strong><br><small>${publicEscape(x.description||'')}</small></td><td><a href="${publicSafeExternalUrl(x.url)||'#'}" target="_blank" rel="noopener">Mở</a></td><td>${x.is_published?'Công khai':'Đang ẩn'}</td><td><button class="btn btn-primary btn-sm" onclick='editPublicLink(${JSON.stringify(JSON.stringify(x))})'><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="deletePublicLink('${x.id}')"><i class="fas fa-trash"></i></button></td></tr>`).join('')||'<tr><td colspan="4" class="text-muted">Chưa có liên kết.</td></tr>'}</tbody></table></div>`;
+}
+function editPublicLink(json){
+    const x=JSON.parse(json);
+    document.getElementById('publicLinkEditId').value=x.id||'';
+    document.getElementById('publicLinkTitle').value=x.title||'';
+    document.getElementById('publicLinkDescription').value=x.description||'';
+    document.getElementById('publicLinkUrl').value=x.url||'';
+    document.getElementById('publicLinkIcon').value=publicLinkIcon(x.icon);
+    document.getElementById('publicLinkSort').value=Number(x.sort_order)||0;
+    document.getElementById('publicLinkPublished').checked=x.is_published!==false;
+}
+async function savePublicLink(){
+    if(!isAdmin())return;
+    const id=document.getElementById('publicLinkEditId')?.value||'';
+    const title=document.getElementById('publicLinkTitle')?.value.trim()||'';
+    const url=document.getElementById('publicLinkUrl')?.value.trim()||'';
+    if(!title){showToast('Vui lòng nhập tên website.','error');return;}
+    if(!publicSafeExternalUrl(url)){showToast('Đường dẫn website phải bắt đầu bằng http:// hoặc https://','error');return;}
+    const payload={title,description:document.getElementById('publicLinkDescription')?.value.trim()||null,url,icon:publicLinkIcon(document.getElementById('publicLinkIcon')?.value),sort_order:parseInt(document.getElementById('publicLinkSort')?.value||'0',10)||0,is_published:!!document.getElementById('publicLinkPublished')?.checked,updated_at:new Date().toISOString()};
+    const q=id?supabase.from('app3_public_links').update(payload).eq('id',id):supabase.from('app3_public_links').insert(payload);
+    const {error}=await q;
+    if(error){showToast('Lỗi lưu liên kết: '+error.message,'error');return;}
+    showToast('Đã lưu liên kết website!'); await showPublicLinkEditor(); await loadPublicUtilityContent();
+}
+async function deletePublicLink(id){
+    if(!isAdmin()||!confirm('Xóa liên kết website này?'))return;
+    const {error}=await supabase.from('app3_public_links').delete().eq('id',id);
+    if(error){showToast('Lỗi xóa liên kết: '+error.message,'error');return;}
+    showToast('Đã xóa liên kết.'); await showPublicLinkEditor(); await loadPublicUtilityContent();
 }
 
 // ============================================================
@@ -6598,7 +6767,7 @@ async function importScoresExcel(event) {
         event.target.value = '';
     }
 }
-const BACKUP_TABLES=['app3_subjects','app3_classes','app3_students','app3_scores','app3_attendance','app3_rewards','app3_disciplines','app3_learning_comments','app3_files','app3_settings','app3_public_posts','app3_public_documents'];
+const BACKUP_TABLES=['app3_subjects','app3_classes','app3_students','app3_scores','app3_attendance','app3_rewards','app3_disciplines','app3_learning_comments','app3_files','app3_settings','app3_public_posts','app3_public_documents','app3_public_announcements','app3_public_links'];
 async function backupAllData(){
     try{const backup={format:'QLHS_BACKUP_V1',created_at:new Date().toISOString(),tables:{}};for(const table of BACKUP_TABLES){const {data,error}=await supabase.from(table).select('*');if(error)throw new Error(`${table}: ${error.message}`);backup.tables[table]=data||[];}const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`QLHS_backup_${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(a.href);showToast('Sao lưu dữ liệu thành công!');}catch(err){showToast('Lỗi sao lưu: '+err.message,'error');}
 }
@@ -6618,7 +6787,7 @@ async function mergeBackupData(event){
         const summary=validateBackupFile(backup);
         const ok=await showModal('Xác nhận hợp nhất dữ liệu',`File: ${file.name}\nTạo lúc: ${backup.created_at||'Không rõ'}\n\n${summary}\n\nDữ liệu trong file sẽ được ghi đè/thêm theo khóa hiện có. Dữ liệu khác KHÔNG bị xóa.`,`Hợp nhất`,`Hủy`);
         if(!ok)return;
-        const order=['app3_classes','app3_students','app3_subjects','app3_scores','app3_attendance','app3_rewards','app3_disciplines','app3_learning_comments','app3_files','app3_settings','app3_public_posts','app3_public_documents'];
+        const order=['app3_classes','app3_students','app3_subjects','app3_scores','app3_attendance','app3_rewards','app3_disciplines','app3_learning_comments','app3_files','app3_settings','app3_public_posts','app3_public_documents','app3_public_announcements','app3_public_links'];
         for(const table of order){const rows=backup.tables[table]||[];if(!rows.length)continue;const opts=table==='app3_scores'?{onConflict:'student_id,subject'}:undefined;const q=opts?supabase.from(table).upsert(rows,opts):supabase.from(table).upsert(rows);const {error}=await q;if(error)throw new Error(`${table}: ${error.message}`);}
         showToast('Hợp nhất dữ liệu thành công!');await loadAllData();renderPage('settings');
     }catch(err){showToast('Lỗi hợp nhất dữ liệu: '+err.message,'error');}finally{event.target.value='';}
@@ -7430,5 +7599,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 window.showPublicContentEditor=showPublicContentEditor; window.savePublicContent=savePublicContent; window.editPublicContent=editPublicContent; window.deletePublicContent=deletePublicContent; window.resetPublicContentForm=resetPublicContentForm; window.openPublicPostDetail=openPublicPostDetail; window.closePublicPostDetail=closePublicPostDetail; window.handlePublicPostImageSelection=handlePublicPostImageSelection; window.clearPublicPostImage=clearPublicPostImage; window.showPublicMediaEditor=showPublicMediaEditor; window.updatePublicMediaFormByType=updatePublicMediaFormByType; window.savePublicMedia=savePublicMedia; window.editPublicMedia=editPublicMedia; window.deletePublicMedia=deletePublicMedia; window.resetPublicMediaForm=resetPublicMediaForm; window.openPublicMediaModal=openPublicMediaModal; window.closePublicMediaModal=closePublicMediaModal;
+
+window.showPublicAnnouncementEditor=showPublicAnnouncementEditor; window.editPublicAnnouncement=editPublicAnnouncement; window.savePublicAnnouncement=savePublicAnnouncement; window.deletePublicAnnouncement=deletePublicAnnouncement; window.showPublicLinkEditor=showPublicLinkEditor; window.editPublicLink=editPublicLink; window.savePublicLink=savePublicLink; window.deletePublicLink=deletePublicLink;
 
 window.publicVideoError = publicVideoError;

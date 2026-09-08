@@ -118,3 +118,13 @@ Chạy toàn bộ file `BUOC_149_5_SUPABASE.sql` một lần trong **Supabase > 
 - Video lớn tiếp tục dùng resumable upload.
 - YouTube hiển thị ảnh bìa thumbnail (maxresdefault, fallback hqdefault) thay vì iframe trực tiếp để tránh khung 'This video is unavailable'.
 - Bấm ảnh bìa hoặc nút để mở video trên YouTube.
+
+## BƯỚC 149.8 - THÔNG BÁO + LIÊN KẾT WEBSITE ĐỘNG
+- Thêm bảng `app3_public_announcements` và `app3_public_links` với RLS: khách chỉ đọc nội dung đã công khai, Admin mới được thêm/sửa/xóa.
+- Cột phải của bố cục U ngược hiển thị tối đa 3 thông báo mới và 3 liên kết nhanh.
+- Khu `Liên kết hữu ích` giữa trang lấy dữ liệu động từ Supabase thay vì viết cứng trong HTML.
+- Admin quản lý tại `Cài đặt > Nội dung website công khai > Thông báo` và `Liên kết website`.
+- Thông báo hỗ trợ ghim, ẩn/hiện, thứ tự và URL chi tiết tùy chọn.
+- Liên kết hỗ trợ biểu tượng, mô tả, thứ tự, ẩn/hiện; URL chỉ chấp nhận HTTP/HTTPS.
+- Nếu chưa chạy SQL 149.8, website vẫn dùng 2 liên kết dự phòng VNEDU và Bộ GD&ĐT để không làm hỏng trang công khai.
+- Chạy `BUOC_149_8_THONG_BAO_LIEN_KET.sql` đúng 1 lần trong Supabase SQL Editor.

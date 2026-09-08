@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn - Hệ thống quản lý học sinh</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=1498">
     <!-- Thêm thư viện XLSX để xuất file Excel -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <!-- ExcelJS: xuất file VNEDU có định dạng, đường viền, căn lề -->
@@ -57,11 +57,15 @@
                     <aside class="public-u-side public-u-right" aria-label="Tiện ích">
                         <div class="u-side-title"><i class="fas fa-bolt"></i><span>Tiện ích</span></div>
                         <div class="u-school-year"><i class="far fa-calendar-alt"></i><span>Năm học</span><b id="publicSchoolYear">2026-2027</b></div>
-                        <nav class="u-side-nav">
-                            <a href="#tin-tuc"><i class="fas fa-bullhorn"></i><span>Thông báo mới</span></a>
-                            <a href="#lien-ket"><i class="fas fa-link"></i><span>Liên kết hữu ích</span></a>
-                            <a href="#lien-he"><i class="fas fa-phone"></i><span>Thông tin liên hệ</span></a>
-                        </nav>
+                        <div class="u-utility-block">
+                            <div class="u-utility-heading"><i class="fas fa-bullhorn"></i><span>Thông báo mới</span><a href="#tin-tuc" aria-label="Xem khu vực tin tức">Xem</a></div>
+                            <div id="publicAnnouncementList" class="u-announcement-list"><span class="u-utility-loading"><i class="fas fa-spinner fa-spin"></i> Đang tải...</span></div>
+                        </div>
+                        <div class="u-utility-block">
+                            <div class="u-utility-heading"><i class="fas fa-link"></i><span>Liên kết nhanh</span><a href="#lien-ket" aria-label="Xem tất cả liên kết">Tất cả</a></div>
+                            <div id="publicQuickLinks" class="u-quick-links"><span class="u-utility-loading"><i class="fas fa-spinner fa-spin"></i> Đang tải...</span></div>
+                        </div>
+                        <a class="u-contact-link" href="#lien-he"><i class="fas fa-phone"></i><span>Thông tin liên hệ</span></a>
                         <button class="u-manage-btn" data-open-login><i class="fas fa-right-to-bracket"></i><span>Vào hệ thống quản lý</span></button>
                     </aside>
                 </div>
@@ -132,9 +136,8 @@
             <section id="lien-ket" class="site-section public-links-section">
                 <div class="site-container">
                     <div class="section-heading"><span>LIÊN KẾT HỮU ÍCH</span><h2>Kết nối các hệ thống giáo dục</h2><p>Các website bên ngoài mở ở tab mới và không yêu cầu đăng nhập vào hệ thống quản lý học sinh của website này.</p></div>
-                    <div class="public-links-grid">
-                        <a href="https://ucnnzccazsgdkiengiang.vnedu.vn/v5/" target="_blank" rel="noopener noreferrer"><i class="fas fa-school"></i><div><b>VNEDU</b><span>Hệ thống đang sử dụng của nhà trường</span></div><i class="fas fa-arrow-up-right-from-square"></i></a>
-                        <a href="https://moet.gov.vn/" target="_blank" rel="noopener noreferrer"><i class="fas fa-landmark"></i><div><b>Bộ Giáo dục và Đào tạo</b><span>Cổng thông tin điện tử</span></div><i class="fas fa-arrow-up-right-from-square"></i></a>
+                    <div id="publicLinksGrid" class="public-links-grid">
+                        <div class="public-content-loading"><i class="fas fa-spinner fa-spin"></i> Đang tải liên kết...</div>
                     </div>
                 </div>
             </section>
@@ -313,7 +316,7 @@
     </div>
 
     <script type="module" src="supabase.js?v=14858"></script>
-    <script type="module" src="script.js?v=148510"></script>
+    <script type="module" src="script.js?v=1498"></script>
     <div id="sidebarOverlay" class="sidebar-overlay"></div>
 </body>
 </html>
