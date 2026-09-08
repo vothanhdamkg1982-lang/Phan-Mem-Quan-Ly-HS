@@ -1,8 +1,8 @@
-# BƯỚC 149.10 – GIAO DIỆN CHỐT CỔNG THÔNG TIN + NỘI DUNG + HỌC SINH
+# Bước 150.3.1 – Sửa truy cập hệ thống trên điện thoại
 
-- Trang công khai được hoàn thiện theo bố cục đã duyệt: menu trái, banner lớn trung tâm, tiện ích/thông báo/liên kết bên phải.
-- Module Nội dung website được tách khỏi Cài đặt và dùng giao diện quản trị chuyên nghiệp riêng.
-- Module Học sinh được nâng cấp thành bố cục danh sách + bảng cập nhật bên phải, giữ nguyên lớp/bộ lọc sau khi lưu.
-- Thêm nút **Lưu & sang học sinh kế tiếp** để cập nhật liên tục theo lớp.
-- Sửa xóa ảnh học sinh: khi chọn Xóa ảnh và lưu, `avatar_url` được đặt NULL trong Supabase.
-- Không thay đổi cấu trúc database và không cần chạy SQL mới.
+- Giữ nguyên toàn bộ chức năng đã đạt của Bước 150.3.
+- Sửa luồng nút Đăng nhập / Vào hệ thống trên mobile bằng event delegation.
+- Tăng độ ưu tiên và khả năng cuộn của hộp đăng nhập trên màn hình nhỏ.
+- Tối ưu thao tác chạm và input trên Safari/Chrome mobile.
+- Không thay đổi Supabase, RLS, dữ liệu học sinh hoặc VNEDU.
+- Không cần chạy SQL.
