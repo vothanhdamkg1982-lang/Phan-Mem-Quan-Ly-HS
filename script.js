@@ -90,6 +90,7 @@ function renderWheel() {
             <div class="wheel-container ${WHEEL_STATE.presentationMode ? 'presentation-mode' : ''}">
                 <div class="wheel-stage">
                     <div class="wheel-wrapper">
+                        <div id="wheelFallback" class="wheel-mobile-fallback" aria-hidden="true"><span>🎯</span></div>
                         <canvas id="wheelCanvas"></canvas>
                         <div class="wheel-pointer">▼</div>
                     </div>
@@ -367,6 +368,13 @@ function drawWheel() {
     
     const segmentAngle = (2 * Math.PI) / count;
     const rotation = WHEEL_STATE.rotation;
+
+    // Fallback hiển thị riêng cho iOS/Safari: nếu canvas không paint được,
+    // bánh xe CSS vẫn luôn nhìn thấy và xoay theo đúng góc.
+    const fallback = document.getElementById('wheelFallback');
+    if (fallback) {
+        fallback.style.transform = `rotate(${rotation}rad)`;
+    }
     
     for (let i = 0; i < count; i++) {
         const startAngle = i * segmentAngle + rotation;
@@ -394,7 +402,7 @@ function drawWheel() {
         ctx2.shadowBlur = 4;
         
         const textRadius = radius * 0.65;
-        const name = students[i].fullName;
+        const name = String(students[i]?.fullName || students[i]?.name || students[i]?.student_name || `HS ${i + 1}`);
         const displayName = name.length > 15 ? name.substring(0, 13) + '…' : name;
         ctx2.fillText(displayName, textRadius, 0);
         ctx2.restore();
@@ -489,44 +497,62 @@ function spinWheel() {
     
     const targetAngle = finalRotation - currentRotation;
     const duration = 4000 + Math.random() * 1000;
-    const startTime = performance.now();
-    
+    const startedAt = Date.now();
+    let animationFrameId = null;
+    let safetyTimerId = null;
+    let finished = false;
+
     if (WHEEL_STATE.audioEnabled) {
         playSpinSound();
     }
-    
-    function animateWheel(time) {
-        const elapsed = time - startTime;
+
+    const finishSpin = () => {
+        if (finished) return;
+        finished = true;
+        if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        if (safetyTimerId) clearTimeout(safetyTimerId);
+
+        WHEEL_STATE.rotation = finalRotation;
+        try { drawWheel(); } catch (err) { console.warn('Wheel final draw:', err); }
+        stopSpinSound();
+
+        const savedWinner = WHEEL_STATE.participants.find(s => s.id === WHEEL_STATE.winnerId);
+        try {
+            showWinner(savedWinner || WHEEL_STATE.currentWinner);
+        } finally {
+            WHEEL_STATE.isSpinning = false;
+            if (spinBtn) {
+                spinBtn.disabled = false;
+                spinBtn.innerHTML = '<i class="fas fa-play"></i> QUAY';
+            }
+        }
+    };
+
+    function animateWheel() {
+        if (finished) return;
+        const elapsed = Math.max(0, Date.now() - startedAt);
         const progress = Math.min(elapsed / duration, 1);
         const eased = 1 - Math.pow(1 - progress, 3);
-        const currentRotationAnimated = currentRotation + targetAngle * eased;
-        
-        WHEEL_STATE.rotation = currentRotationAnimated;
-        drawWheel();
-        
-        if (progress < 1) {
-            requestAnimationFrame(animateWheel);
-        } else {
-            WHEEL_STATE.rotation = finalRotation;
+        WHEEL_STATE.rotation = currentRotation + targetAngle * eased;
+
+        try {
             drawWheel();
-            
-            setTimeout(() => {
-                const savedWinner = WHEEL_STATE.participants.find(s => s.id === WHEEL_STATE.winnerId);
-                if (savedWinner) {
-                    showWinner(savedWinner);
-                } else {
-                    showWinner(WHEEL_STATE.currentWinner);
-                }
-                WHEEL_STATE.isSpinning = false;
-                if (spinBtn) {
-                    spinBtn.disabled = false;
-                    spinBtn.innerHTML = '<i class="fas fa-play"></i> QUAY';
-                }
-            }, 300);
+        } catch (err) {
+            // Không để một lỗi paint canvas trên Safari làm vòng quay treo vô hạn.
+            console.warn('Wheel draw skipped:', err);
         }
+
+        if (progress >= 1) {
+            finishSpin();
+            return;
+        }
+        animationFrameId = requestAnimationFrame(animateWheel);
     }
-    
-    requestAnimationFrame(animateWheel);
+
+    // Bảo hiểm: dù requestAnimationFrame của iOS bị treo/throttle,
+    // vòng quay vẫn chắc chắn kết thúc và trả kết quả.
+    safetyTimerId = setTimeout(finishSpin, Math.ceil(duration + 1200));
+    animationFrameId = requestAnimationFrame(animateWheel);
 }
 
 function showWinner(winner) {

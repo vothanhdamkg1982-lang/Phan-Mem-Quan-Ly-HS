@@ -1817,3 +1817,77 @@ a[onclick="goHome()"],
         margin: 2px 0 10px;
     }
 }
+
+
+/* ============================================================
+   BƯỚC 150.4.10 - FIX VÒNG QUAY iOS/SAFARI
+   ============================================================ */
+.wheel-mobile-fallback {
+    display: none;
+}
+
+@media (max-width: 760px) {
+    .wheel-wrapper {
+        position: relative !important;
+        overflow: visible !important;
+    }
+
+    .wheel-mobile-fallback {
+        display: flex !important;
+        position: absolute !important;
+        inset: 0 !important;
+        z-index: 1 !important;
+        border-radius: 50% !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background: conic-gradient(
+            #ff6b6b 0deg 30deg,
+            #4ecdc4 30deg 60deg,
+            #45b7d1 60deg 90deg,
+            #96ceb4 90deg 120deg,
+            #f6c85f 120deg 150deg,
+            #dda0dd 150deg 180deg,
+            #5dade2 180deg 210deg,
+            #58d68d 210deg 240deg,
+            #f1948a 240deg 270deg,
+            #af7ac5 270deg 300deg,
+            #73c6b6 300deg 330deg,
+            #f8c471 330deg 360deg
+        ) !important;
+        box-shadow: 0 8px 32px rgba(0,0,0,.22) !important;
+        transform-origin: 50% 50% !important;
+        will-change: transform;
+    }
+
+    .wheel-mobile-fallback::after {
+        content: '';
+        position: absolute;
+        width: 22%;
+        height: 22%;
+        min-width: 58px;
+        min-height: 58px;
+        border-radius: 50%;
+        background: #fff;
+        border: 3px solid #2563eb;
+        box-sizing: border-box;
+    }
+
+    .wheel-mobile-fallback > span {
+        position: relative;
+        z-index: 2;
+        font-size: clamp(24px, 8vw, 38px);
+        transform: rotate(calc(-1 * var(--wheel-rotation, 0rad)));
+    }
+
+    #wheelCanvas {
+        position: absolute !important;
+        inset: 0 !important;
+        z-index: 2 !important;
+        background: transparent !important;
+        pointer-events: none !important;
+    }
+
+    .wheel-pointer {
+        z-index: 6 !important;
+    }
+}
