@@ -1068,7 +1068,10 @@ currentUserEmail: '',
 currentUserDisplayName: '',
 currentUserAccessScope: 'all',
 currentUserAssignments: [],
-userAccessLoaded: false
+userAccessLoaded: false,
+coreDataLoaded: false,
+extendedDataLoaded: false,
+extendedDataPromise: null
 };
 
 const SUBJECT_CONFIG = [
@@ -1514,271 +1517,128 @@ function applyCurrentUserDisplayScope() {
 
 async function loadAllData() {
     const loadStartTime = performance.now();
-    console.time('LOAD ALL DATA');
+    console.time('LOAD CORE DATA');
     showLoading();
-
     try {
-        // BƯỚC 122.6C: quyền phải có trước dữ liệu để phạm vi assigned được áp đúng.
         if (!APP_STATE.userAccessLoaded) {
             const accessOk = await loadCurrentUserAccess();
             if (!accessOk) return;
         }
-
-        // BƯỚC 150.4.11: gom toàn bộ truy vấn độc lập vào MỘT lượt song song.
-        // Trước đây app phải chờ môn/lớp xong mới bắt đầu tải học sinh, điểm, điểm danh...,
-        // tạo thêm một vòng chờ mạng trên cả máy tính và điện thoại.
-        const [
-            subjectsResult,
-            classesResult,
-            studentsResult,
-            scoresResult,
-            attendanceResult,
-            rewardsResult,
-            disciplinesResult,
-            learningCommentsResult,
-            filesResult,
-            settingsResult
-        ] = await Promise.all([
-            supabase
-                .from('app3_subjects')
-                .select('id, name, grades, active')
-                .order('name'),
-            supabase
-                .from('app3_classes')
-                .select('*')
-                .order('name'),
-            supabase
-                .from('app3_students')
-                .select('*, app3_classes(name)')
-                .order('full_name'),
-            supabase
-                .from('app3_scores')
-                .select('*'),
-            supabase
-                .from('app3_attendance')
-                .select('*'),
-            supabase
-                .from('app3_rewards')
-                .select('*')
-                .order('date', { ascending: false }),
-            supabase
-                .from('app3_disciplines')
-                .select('*')
-                .order('date', { ascending: false }),
-            supabase
-                .from('app3_learning_comments')
-                .select('*')
-                .order('comment_datetime', { ascending: false }),
-            supabase
-                .from('app3_files')
-                .select('*')
-                .order('created_at', { ascending: false }),
-            supabase
-                .from('app3_settings')
-                .select('*')
-                .limit(1)
-                .maybeSingle()
+        // BƯỚC 150.4.13: khi đăng nhập chỉ tải dữ liệu lõi cần cho Dashboard/Lớp/Vòng quay.
+        // Các bảng nặng (điểm, điểm danh, khen thưởng, kỷ luật, nhận xét, file)
+        // được tải khi người dùng thực sự mở module cần chúng.
+        const [subjectsResult, classesResult, studentsResult, settingsResult] = await Promise.all([
+            supabase.from('app3_subjects').select('id, name, grades, active').order('name'),
+            supabase.from('app3_classes').select('*').order('name'),
+            supabase.from('app3_students').select('*, app3_classes(name)').order('full_name'),
+            supabase.from('app3_settings').select('*').limit(1).maybeSingle()
         ]);
 
         if (subjectsResult.error) {
-            console.warn(
-                'Không tải được app3_subjects, tiếp tục dùng cấu hình môn mặc định:',
-                subjectsResult.error
-            );
-            APP_STATE.allSubjectCatalog = SUBJECT_CONFIG.map(subject => ({
-                ...subject,
-                grades: [1, 2, 3, 4, 5],
-                active: true
-            }));
-        } else {
-            APP_STATE.allSubjectCatalog = subjectsResult.data || [];
-        }
-
+            console.warn('Không tải được app3_subjects, dùng cấu hình mặc định:', subjectsResult.error);
+            APP_STATE.allSubjectCatalog = SUBJECT_CONFIG.map(subject => ({...subject, grades:[1,2,3,4,5], active:true}));
+        } else APP_STATE.allSubjectCatalog = subjectsResult.data || [];
         APP_STATE.subjectCatalog = APP_STATE.allSubjectCatalog.filter(subject => subject.active !== false);
-        console.log('DANH MỤC MÔN HỌC:', APP_STATE.subjectCatalog.length);
 
         if (classesResult.error) throw classesResult.error;
+        if (studentsResult.error) throw studentsResult.error;
+        if (settingsResult.error) throw settingsResult.error;
+
         APP_STATE.allClasses = classesResult.data || [];
         APP_STATE.classes = APP_STATE.allClasses;
         APP_STATE.classMap = {};
         APP_STATE.classes.forEach(c => { APP_STATE.classMap[c.name] = c.id; });
-
-        // Phân công đã được nạp cùng loadCurrentUserAccess(). Không query lại ở đây.
         applyCurrentUserDisplayScope();
 
         const visibleSubjectNames = APP_STATE.subjectCatalog.map(subject => subject.name);
-        ['currentSubject', 'studentSubject', 'statSubject', 'searchSubject'].forEach(key => {
-            if (visibleSubjectNames.length > 0 && !visibleSubjectNames.includes(APP_STATE[key])) {
-                APP_STATE[key] = visibleSubjectNames[0];
-            }
+        ['currentSubject','studentSubject','statSubject','searchSubject'].forEach(key => {
+            if (visibleSubjectNames.length && !visibleSubjectNames.includes(APP_STATE[key])) APP_STATE[key] = visibleSubjectNames[0];
         });
-
-        if (studentsResult.error) throw studentsResult.error;
-        if (scoresResult.error) throw scoresResult.error;
-        if (attendanceResult.error) throw attendanceResult.error;
-        if (rewardsResult.error) throw rewardsResult.error;
-        if (disciplinesResult.error) throw disciplinesResult.error;
-        if (learningCommentsResult.error) throw learningCommentsResult.error;
-        if (filesResult.error) throw filesResult.error;
-        if (settingsResult.error) throw settingsResult.error;
 
         APP_STATE.students = (studentsResult.data || []).map(s => ({
-            ...s,
-            db_uuid: s.id,
-            class: s.app3_classes?.name || s.class_code || s.class || '',
-            id: s.student_code,
-            fullName: s.full_name,
-            dob: s.dob,
-            gender: s.gender,
-            address: s.address,
-            phone: s.phone,
-            email: s.email,
-            fatherName: s.father_name,
-            motherName: s.mother_name,
-            parentPhone: s.parent_phone,
-            enrollmentDate: s.enrollment_date,
-            status: s.status,
-            note: s.note,
-            avatar: s.avatar_url || DEFAULT_AVATAR,
-            grade: s.grade,
-            class_id: s.class_id
+            ...s, db_uuid:s.id, class:s.app3_classes?.name || s.class_code || s.class || '', id:s.student_code,
+            fullName:s.full_name, dob:s.dob, gender:s.gender, address:s.address, phone:s.phone, email:s.email,
+            fatherName:s.father_name, motherName:s.mother_name, parentPhone:s.parent_phone,
+            enrollmentDate:s.enrollment_date, status:s.status, note:s.note, avatar:s.avatar_url || DEFAULT_AVATAR,
+            grade:s.grade, class_id:s.class_id
         }));
-
         if (hasAssignedScope()) {
-            const allowedClassIds = getAssignedClassIds();
-            APP_STATE.students = APP_STATE.students.filter(student => allowedClassIds.has(student.class_id));
+            const allowedClassIds=getAssignedClassIds();
+            APP_STATE.students=APP_STATE.students.filter(student=>allowedClassIds.has(student.class_id));
         }
 
-        console.log('KIỂM TRA STUDENTS:', APP_STATE.students.length);
-
-        // Lập map UUID -> học sinh một lần để tránh find() lặp khi xử lý điểm/điểm danh.
-        const studentByUuid = new Map(APP_STATE.students.map(student => [student.db_uuid, student]));
-
-        APP_STATE.scores = {};
-        (scoresResult.data || []).forEach(rec => {
-            const student = studentByUuid.get(rec.student_id);
-            if (!student) return;
-            const studentId = student.id;
-            if (!APP_STATE.scores[studentId]) APP_STATE.scores[studentId] = {};
-            APP_STATE.scores[studentId][rec.subject] = {
-                giuaKy1: normalizeVnEduRating(rec.giua_ky_1 || ''),
-                cuoiKy1: rec.cuoi_ky_1 !== null ? rec.cuoi_ky_1 : null,
-                giuaKy2: normalizeVnEduRating(rec.giua_ky_2 || ''),
-                cuoiKy2: rec.cuoi_ky_2 !== null ? rec.cuoi_ky_2 : null,
-                competence: rec.competence || '',
-                quality: rec.quality || '',
-                xepLoaiCuoiKy1: normalizeVnEduRating(rec.xep_loai_cuoi_ky_1 || ''),
-                xepLoaiCuoiKy2: normalizeVnEduRating(rec.xep_loai_cuoi_ky_2 || ''),
-                cuoiKy2SauThiLai: rec.cuoi_ky_2_sau_thi_lai !== null ? rec.cuoi_ky_2_sau_thi_lai : null,
-                xepLoaiCuoiKy2SauThiLai: normalizeVnEduRating(rec.xep_loai_cuoi_ky_2_sau_thi_lai || ''),
-                nhanXetGk1: rec.nhan_xet_gk1 || '', nhanXetCk1: rec.nhan_xet_ck1 || '',
-                nhanXetGk2: rec.nhan_xet_gk2 || '', nhanXetCk2: rec.nhan_xet_ck2 || ''
-            };
-        });
-
-        APP_STATE.attendance = [];
-        const attMap = {};
-        (attendanceResult.data || []).forEach(rec => {
-            const key = `${rec.attendance_date}_${rec.class_id}`;
-            if (!attMap[key]) {
-                attMap[key] = {
-                    date: rec.attendance_date,
-                    class: APP_STATE.classes.find(c => c.id === rec.class_id)?.name || '',
-                    class_id: rec.class_id,
-                    records: []
-                };
-                APP_STATE.attendance.push(attMap[key]);
-            }
-            const student = studentByUuid.get(rec.student_id);
-            if (student) {
-                attMap[key].records.push({
-                    studentId: student.id,
-                    status: rec.status
-                });
-            }
-        });
-
-        APP_STATE.rewards = (rewardsResult.data || []).map(r => ({
-            id: r.id,
-            studentId: r.student_id,
-            classId: r.class_id,
-            subjectId: r.subject_id,
-            subject: r.subject,
-            date: r.date,
-            content: r.content,
-            decisionBy: r.decision_by
-        })).filter(r => isAssignedPairAccessible(r.classId, r.subjectId));
-
-        APP_STATE.disciplines = (disciplinesResult.data || []).map(d => ({
-            id: d.id,
-            studentId: d.student_id,
-            classId: d.class_id,
-            subjectId: d.subject_id,
-            subject: d.subject,
-            date: d.date,
-            content: d.content,
-            decisionBy: d.decision_by
-        })).filter(d => isAssignedPairAccessible(d.classId, d.subjectId));
-
-        APP_STATE.learningComments = (learningCommentsResult.data || []).map(c => ({
-            id: c.id,
-            studentId: c.student_id,
-            classId: c.class_id,
-            subjectId: c.subject_id,
-            commentDatetime: c.comment_datetime,
-            subject: c.subject,
-            commentType: c.comment_type,
-            content: c.content,
-            teacherName: c.teacher_name,
-            createdAt: c.created_at,
-            updatedAt: c.updated_at
-        }));
-
-        APP_STATE.files = (filesResult.data || []).map(f => ({
-            id: f.id,
-            name: f.file_name,
-            type: f.file_type,
-            size: f.file_size,
-            uploadDate: f.created_at,
-            desc: f.description,
-            path: f.file_path,
-            url: f.file_url
-        }));
-
-        const settings = settingsResult.data;
-        if (settings) {
-            APP_STATE.settings = {
-                schoolName: settings.school_name || APP_STATE.settings.schoolName,
-                schoolYear: settings.school_year || APP_STATE.settings.schoolYear,
-                teacherName: settings.teacher_name || APP_STATE.settings.teacherName,
-                theme: settings.theme || 'light',
-                logo: settings.logo_url || ''
-            };
-        }
-
-        // BƯỚC 148.5.7: cấu hình nhận diện tạm dùng cho năm học 2026-2027.
-        // Giữ cố định tại runtime để dữ liệu app3_settings cũ không ghi đè tên trường/năm học mới.
-        APP_STATE.settings.schoolName = 'Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn';
-        APP_STATE.settings.schoolYear = '2026-2027';
-
-        if (APP_STATE.settings.theme === 'dark') {
-            document.documentElement.setAttribute('data-theme', 'dark');
-            APP_STATE.darkMode = true;
-        } else {
-            document.documentElement.removeAttribute('data-theme');
-            APP_STATE.darkMode = false;
-        }
-
+        const settings=settingsResult.data;
+        if (settings) APP_STATE.settings={
+            schoolName:settings.school_name || APP_STATE.settings.schoolName,
+            schoolYear:settings.school_year || APP_STATE.settings.schoolYear,
+            teacherName:settings.teacher_name || APP_STATE.settings.teacherName,
+            theme:settings.theme || 'light', logo:settings.logo_url || ''
+        };
+        APP_STATE.settings.schoolName='Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn';
+        APP_STATE.settings.schoolYear='2026-2027';
+        if (APP_STATE.settings.theme==='dark') { document.documentElement.setAttribute('data-theme','dark'); APP_STATE.darkMode=true; }
+        else { document.documentElement.removeAttribute('data-theme'); APP_STATE.darkMode=false; }
         updateClassCounts();
-        console.log('Đã tải dữ liệu từ Supabase thành công!');
-    } catch (err) {
-        console.error('Lỗi tải dữ liệu:', err);
-        showToast('Không thể tải dữ liệu từ Supabase. Vui lòng kiểm tra kết nối.', 'error');
+        APP_STATE.coreDataLoaded=true;
+        console.log(`DỮ LIỆU LÕI: ${APP_STATE.students.length} học sinh, ${APP_STATE.classes.length} lớp`);
+    } catch(err) {
+        console.error('Lỗi tải dữ liệu lõi:',err);
+        showToast('Không thể tải dữ liệu từ Supabase. Vui lòng kiểm tra kết nối.','error');
     } finally {
-        console.timeEnd('LOAD ALL DATA');
-        console.log(`Tổng thời gian loadAllData: ${(performance.now() - loadStartTime).toFixed(0)} ms`);
+        console.timeEnd('LOAD CORE DATA');
+        console.log(`Thời gian vào hệ thống: ${(performance.now()-loadStartTime).toFixed(0)} ms`);
         hideLoading();
     }
+}
+
+async function ensureExtendedDataLoaded() {
+    if (APP_STATE.extendedDataLoaded) return true;
+    if (APP_STATE.extendedDataPromise) return APP_STATE.extendedDataPromise;
+    APP_STATE.extendedDataPromise=(async()=>{
+        const started=performance.now();
+        try {
+            const [scoresResult,attendanceResult,rewardsResult,disciplinesResult,learningCommentsResult,filesResult]=await Promise.all([
+                supabase.from('app3_scores').select('*'),
+                supabase.from('app3_attendance').select('*'),
+                supabase.from('app3_rewards').select('*').order('date',{ascending:false}),
+                supabase.from('app3_disciplines').select('*').order('date',{ascending:false}),
+                supabase.from('app3_learning_comments').select('*').order('comment_datetime',{ascending:false}),
+                supabase.from('app3_files').select('*').order('created_at',{ascending:false})
+            ]);
+            for (const r of [scoresResult,attendanceResult,rewardsResult,disciplinesResult,learningCommentsResult,filesResult]) if (r.error) throw r.error;
+            const studentByUuid=new Map(APP_STATE.students.map(student=>[student.db_uuid,student]));
+            APP_STATE.scores={};
+            (scoresResult.data||[]).forEach(rec=>{
+                const student=studentByUuid.get(rec.student_id); if(!student)return;
+                if(!APP_STATE.scores[student.id]) APP_STATE.scores[student.id]={};
+                APP_STATE.scores[student.id][rec.subject]={
+                    giuaKy1:normalizeVnEduRating(rec.giua_ky_1||''), cuoiKy1:rec.cuoi_ky_1!==null?rec.cuoi_ky_1:null,
+                    giuaKy2:normalizeVnEduRating(rec.giua_ky_2||''), cuoiKy2:rec.cuoi_ky_2!==null?rec.cuoi_ky_2:null,
+                    competence:rec.competence||'', quality:rec.quality||'',
+                    xepLoaiCuoiKy1:normalizeVnEduRating(rec.xep_loai_cuoi_ky_1||''), xepLoaiCuoiKy2:normalizeVnEduRating(rec.xep_loai_cuoi_ky_2||''),
+                    cuoiKy2SauThiLai:rec.cuoi_ky_2_sau_thi_lai!==null?rec.cuoi_ky_2_sau_thi_lai:null,
+                    xepLoaiCuoiKy2SauThiLai:normalizeVnEduRating(rec.xep_loai_cuoi_ky_2_sau_thi_lai||''),
+                    nhanXetGk1:rec.nhan_xet_gk1||'', nhanXetCk1:rec.nhan_xet_ck1||'', nhanXetGk2:rec.nhan_xet_gk2||'', nhanXetCk2:rec.nhan_xet_ck2||''
+                };
+            });
+            APP_STATE.attendance=[]; const attMap={};
+            (attendanceResult.data||[]).forEach(rec=>{
+                const key=`${rec.attendance_date}_${rec.class_id}`;
+                if(!attMap[key]) { attMap[key]={date:rec.attendance_date,class:APP_STATE.classes.find(c=>c.id===rec.class_id)?.name||'',class_id:rec.class_id,records:[]}; APP_STATE.attendance.push(attMap[key]); }
+                const student=studentByUuid.get(rec.student_id); if(student) attMap[key].records.push({studentId:student.id,status:rec.status});
+            });
+            APP_STATE.rewards=(rewardsResult.data||[]).map(r=>({id:r.id,studentId:r.student_id,classId:r.class_id,subjectId:r.subject_id,subject:r.subject,date:r.date,content:r.content,decisionBy:r.decision_by})).filter(r=>isAssignedPairAccessible(r.classId,r.subjectId));
+            APP_STATE.disciplines=(disciplinesResult.data||[]).map(d=>({id:d.id,studentId:d.student_id,classId:d.class_id,subjectId:d.subject_id,subject:d.subject,date:d.date,content:d.content,decisionBy:d.decision_by})).filter(d=>isAssignedPairAccessible(d.classId,d.subjectId));
+            APP_STATE.learningComments=(learningCommentsResult.data||[]).map(c=>({id:c.id,studentId:c.student_id,classId:c.class_id,subjectId:c.subject_id,commentDatetime:c.comment_datetime,subject:c.subject,commentType:c.comment_type,content:c.content,teacherName:c.teacher_name,createdAt:c.created_at,updatedAt:c.updated_at}));
+            APP_STATE.files=(filesResult.data||[]).map(f=>({id:f.id,name:f.file_name,type:f.file_type,size:f.file_size,uploadDate:f.created_at,desc:f.description,path:f.file_path,url:f.file_url}));
+            APP_STATE.extendedDataLoaded=true;
+            console.log(`Dữ liệu module đã tải: ${(performance.now()-started).toFixed(0)} ms`);
+            return true;
+        } catch(err) {
+            console.error('Lỗi tải dữ liệu module:',err); showToast('Không thể tải dữ liệu của module.','error'); return false;
+        } finally { APP_STATE.extendedDataPromise=null; }
+    })();
+    return APP_STATE.extendedDataPromise;
 }
 
 function updateClassCounts() {
@@ -2313,6 +2173,13 @@ window.deleteLearningComment = async function(commentId) {
 
 function renderPage(page) {
     APP_STATE.currentPage = page;
+    const extendedPages = new Set(['students','scores','attendance','rewards','disciplines','learning-comments','files','statistics','search']);
+    if (extendedPages.has(page) && !APP_STATE.extendedDataLoaded) {
+        document.getElementById('pageTitle').textContent = getPageTitle(page);
+        document.getElementById('pageContainer').innerHTML = '<div class=\"card\" style=\"padding:24px;text-align:center\"><i class=\"fas fa-spinner fa-spin\"></i> Đang tải dữ liệu module...</div>';
+        ensureExtendedDataLoaded().then(ok => { if (ok && APP_STATE.currentPage === page) renderPage(page); });
+        return;
+    }
     document.getElementById('pageTitle').textContent = getPageTitle(page);
     const container = document.getElementById('pageContainer');
     switch (page) {

@@ -1,3 +1,13 @@
+# BƯỚC 150.4.12 – SỬA VÒNG QUAY ĐEN / KHÔNG HIỆN TÊN
+
+- Sửa lỗi `ReferenceError: escapeHtml is not defined` trong `updateWheelFallback()`.
+- Thêm `escapeWheelHtml()` độc lập cho nhãn tên học sinh trên bánh xe.
+- Bọc cập nhật bánh xe dự phòng bằng `try/catch` để lỗi fallback không bao giờ chặn canvas chính trên máy tính.
+- Giữ nguyên các chức năng và dữ liệu của bước 150.4.11.
+- Tăng cache asset lên v150412.
+
+Không cần chạy SQL.
+
 # BƯỚC 150.4.11 – VÒNG QUAY MOBILE + TỐI ƯU TẢI DỮ LIỆU
 
 - Giữ nguyên các sửa lỗi đến Bước 150.4.10.
