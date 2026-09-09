@@ -1225,9 +1225,22 @@ function getAssignedClassIds(subjectName = '') {
 
 function getAccessibleClassesForSubject(subjectName = '') {
     const source = APP_STATE.allClasses?.length ? APP_STATE.allClasses : APP_STATE.classes;
-    if (!hasAssignedScope()) return source || [];
+    let classes = [...(source || [])];
+
+    // BƯỚC 150.4.4: lọc lớp theo khối áp dụng của môn.
+    // Nhờ đó lớp 1-2 mới xuất hiện ở Toán/Tiếng Việt/... nhưng không lọt vào
+    // Tin học/Công nghệ nếu danh mục môn không áp dụng cho khối đó.
+    if (subjectName) {
+        const subject = (APP_STATE.subjectCatalog || []).find(x =>
+            normalizeVnEduText(x.name).toLowerCase() === normalizeVnEduText(subjectName).toLowerCase()
+        );
+        const grades = Array.isArray(subject?.grades) ? subject.grades.map(String) : [];
+        if (grades.length) classes = classes.filter(c => grades.includes(String(c.grade ?? c.name?.[0] ?? '')));
+    }
+
+    if (!hasAssignedScope()) return classes;
     const allowedIds = getAssignedClassIds(subjectName);
-    return (source || []).filter(c => allowedIds.has(c.id));
+    return classes.filter(c => allowedIds.has(c.id));
 }
 
 function getVisibleSubjectNames() {
@@ -2442,11 +2455,10 @@ function renderStudents() {
                 <button class="btn btn-danger btn-sm" onclick="deleteSelectedStudents()"><i class="fas fa-trash"></i> Xóa đã chọn</button>
               </div>
             </div>
-            <div class="student-mini-tabs"><button class="active" onclick="setStudentGenderFilter('')">Tất cả</button><button onclick="setStudentGenderFilter('Nam')">Nam</button><button onclick="setStudentGenderFilter('Nữ')">Nữ</button></div>
             <div class="table-wrapper student-table-shell"><table id="studentTable"><thead><tr>
               <th><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th><th>STT</th><th>Ảnh</th><th data-sort="id">Mã HS</th><th data-sort="fullName">Họ tên</th><th data-sort="dob">Ngày sinh</th><th data-sort="gender">Giới tính</th><th data-sort="class">Lớp</th><th data-sort="competence">Năng lực</th><th data-sort="quality">Phẩm chất</th><th data-sort="status">Trạng thái</th><th>Thao tác</th>
             </tr></thead><tbody id="studentTableBody"></tbody></table></div>
-            <div class="student-list-footer"><div class="student-export-compact"><select id="studentExportScope"><option value="all">Tất cả học sinh</option><option value="class">Theo lớp</option><option value="selected">Học sinh đã tick</option></select><select id="studentExportClass"><option value="">Tất cả lớp</option>${studentAccessibleClasses.map(c => `<option value="${c.name}">${c.name}</option>`).join('')}</select></div><div class="pagination" id="studentPagination"></div></div>
+            <div class="student-list-footer"><div class="student-export-hint"><i class="fas fa-circle-info"></i> Nút <strong>Xuất danh sách</strong> sẽ xuất đúng danh sách đang lọc phía trên.</div><div class="pagination" id="studentPagination"></div></div>
             <input type="file" id="vneduStudentImportInput" accept=".xlsx,.xls" style="display:none" onchange="importVnEduStudentWorkbook(event)">
           </section>
           ${editorHtml}
@@ -3318,73 +3330,32 @@ async function deleteSelectedStudents() {
 // 8. IMPORT / EXPORT EXCEL (học sinh)
 // ============================================================
 function exportExcel() {
+    // BƯỚC 150.4.5: Xuất đúng danh sách đang hiển thị theo bộ lọc chính
+    // (môn, khối, lớp, tìm kiếm, giới tính). Không dùng bộ lọc phụ trùng lặp.
+    captureStudentViewState();
+
     const subject =
-    document.getElementById('studentSubject')?.value ||
-    APP_STATE.studentSubject ||
-    APP_STATE.subjectCatalog?.[0]?.name ||
-    SUBJECTS[0];
+        document.getElementById('studentSubject')?.value ||
+        APP_STATE.studentSubject ||
+        APP_STATE.subjectCatalog?.[0]?.name ||
+        SUBJECTS[0];
+    APP_STATE.studentSubject = subject;
 
-APP_STATE.studentSubject = subject;
+    const currentClass = document.getElementById('filterClass')?.value || '';
+    const currentGrade = document.getElementById('filterGrade')?.value || '';
+    const currentGender = document.getElementById('filterGender')?.value || '';
+    const currentSearch = document.getElementById('studentSearch')?.value?.trim() || '';
 
-console.log('EXPORT EXCEL - MÔN ĐANG XUẤT:', subject);
-const scope =
-    document.getElementById('studentExportScope')?.value || 'all';
+    // Dùng cùng một hàm với bảng học sinh để kết quả Excel khớp 100% danh sách đang lọc.
+    const studentsToExport = getFilteredStudents();
 
-const exportClass =
-    document.getElementById('studentExportClass')?.value || '';
-
-let studentsToExport = [...APP_STATE.students];
-
-if (scope === 'class') {
-    if (!exportClass) {
-        showToast('Vui lòng chọn lớp để xuất.', 'warning');
+    if (!studentsToExport.length) {
+        showToast('Không có học sinh phù hợp với bộ lọc hiện tại để xuất.', 'warning');
         return;
     }
-
-    studentsToExport = studentsToExport.filter(
-        s => s.class === exportClass
-    );
-}
-
-if (scope === 'selected') {
-    studentsToExport = studentsToExport.filter(
-        s => APP_STATE.selectedStudents.includes(s.id)
-    );
-
-    // Nếu đồng thời chọn lớp thì chỉ lấy học sinh đã tick thuộc lớp đó
-    if (exportClass) {
-        studentsToExport = studentsToExport.filter(
-            s => s.class === exportClass
-        );
-    }
-
-    if (studentsToExport.length === 0) {
-        showToast(
-            exportClass
-                ? `Không có học sinh nào đã tick trong lớp ${exportClass}.`
-                : 'Chưa có học sinh nào được tick để xuất.',
-            'warning'
-        );
-        return;
-    }
-}
-
-if (studentsToExport.length === 0) {
-    showToast('Không có học sinh phù hợp để xuất.', 'warning');
-    return;
-}
-
-console.log('EXPORT EXCEL:', {
-    subject,
-    scope,
-    exportClass,
-    count: studentsToExport.length,
-    students: studentsToExport.map(s => s.id)
-});
 
     const data = studentsToExport.map(s => {
         const evaluation = APP_STATE.scores?.[s.id]?.[subject] || {};
-
         return {
             'Môn đánh giá': subject,
             'Mã HS': s.id,
@@ -3409,19 +3380,28 @@ console.log('EXPORT EXCEL:', {
 
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(data);
+    const sheetName = (currentClass ? `Lop_${currentClass}` : subject).slice(0, 31);
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
 
-    XLSX.utils.book_append_sheet(
-    wb,
-    ws,
-    subject
-);
+    const safePart = currentClass
+        ? `lop_${currentClass}`
+        : currentGrade
+            ? `khoi_${currentGrade}`
+            : currentGender
+                ? currentGender
+                : currentSearch
+                    ? 'ket_qua_tim_kiem'
+                    : 'tat_ca';
+    const datePart = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `Danh_sach_hoc_sinh_${safePart}_${datePart}.xlsx`);
 
-    XLSX.writeFile(
-        wb,
-        `Danh_sach_hoc_sinh_${subject}_${new Date().toISOString().slice(0, 10)}.xlsx`
-    );
-
-    showToast(`Xuất Excel học sinh môn ${subject} thành công!`);
+    const filterText = [
+        currentClass ? `lớp ${currentClass}` : '',
+        currentGrade && !currentClass ? `khối ${currentGrade}` : '',
+        currentGender ? currentGender : '',
+        currentSearch ? `tìm kiếm “${currentSearch}”` : ''
+    ].filter(Boolean).join(', ');
+    showToast(`Đã xuất ${studentsToExport.length} học sinh${filterText ? ` (${filterText})` : ''}.`, 'success');
 }
 
 function downloadSampleExcel() {
@@ -7234,7 +7214,27 @@ document.addEventListener('DOMContentLoaded', function() {
 // ============================================================
 // BƯỚC 148 - ĐỒNG BỘ EXCEL THEO CÁC MẪU VNEDU ĐƯỢC CUNG CẤP
 // ============================================================
-const VNEDU_CLASS_PREFIX = {"3C": "5004506241", "3A1": "5004506161", "3A2": "5004506961", "3B1": "5004506201", "3B2": "5004506221", "4B": "5004506301", "4C": "5004506341", "4A1": "5004506261", "4A2": "5004506281", "5B": "5004506401", "5C": "5004506441", "5A1": "5004506361", "5A2": "5004506381"};
+const VNEDU_CLASS_PREFIX = {"1A1":"5004653421","1A2":"5004661241","2A1":"5004506061","3C":"5004506241","3A1":"5004506161","3A2":"5004506961","3B1":"5004506201","3B2":"5004506221","4B":"5004506301","4C":"5004506341","4A1":"5004506261","4A2":"5004506281","5B":"5004506401","5C":"5004506441","5A1":"5004506361","5A2":"5004506381"};
+const VNEDU_PREFIX_STORAGE_KEY='app3_vnedu_class_prefixes_v1'; // 150.4.4: hỗ trợ tự học mã cho các lớp 1-2 mới
+try{
+    const learned=JSON.parse(localStorage.getItem(VNEDU_PREFIX_STORAGE_KEY)||'{}');
+    if(learned&&typeof learned==='object')Object.assign(VNEDU_CLASS_PREFIX,learned);
+}catch(_){}
+function rememberVnEduClassPrefix(cls,prefix){
+    cls=normalizeVnEduText(cls).toUpperCase(); prefix=normalizeVnEduText(prefix);
+    if(!/^[1-5][A-Z0-9]+$/.test(cls)||!/^[0-9]+$/.test(prefix))return false;
+    VNEDU_CLASS_PREFIX[cls]=prefix;
+    try{localStorage.setItem(VNEDU_PREFIX_STORAGE_KEY,JSON.stringify(VNEDU_CLASS_PREFIX));}catch(_){}
+    return true;
+}
+function getVnEduClassFromHeaderRows(rows){
+    for(const row of (rows||[]).slice(0,8)){
+        const text=(row||[]).map(normalizeVnEduText).join(' ');
+        const m=text.match(/(?:Khối\s*[1-5]\s*-\s*)?Lớp\s*:?\s*([1-5][A-Za-z0-9]+)/i);
+        if(m)return m[1].toUpperCase();
+    }
+    return '';
+}
 function parseVnEduDate(v){
     if(!v) return '';
     if(typeof v==='number'){ const d=new Date((v-25569)*86400*1000); return isNaN(d)?'':d.toISOString().slice(0,10); }
@@ -7287,9 +7287,21 @@ async function importVnEduStudentWorkbook(event){
    let cls=''; for(const row of rows.slice(0,8)){ const m=row.map(normalizeVnEduText).join(' ').match(/Lớp\s*:\s*([1-5][A-Za-z0-9]+)/i); if(m){cls=m[1].toUpperCase();break;} }
    if(!cls&&/^[1-5][A-Za-z0-9]+$/i.test(sn))cls=sn.toUpperCase(); if(!cls)continue;
    const h=rows.findIndex(row=>row.some(v=>/Mã học sinh/i.test(normalizeVnEduText(v)))); if(h<0)continue;
-   for(let r=h+1;r<rows.length;r++){ const row=rows[r],code=normalizeVnEduText(row[1]),name=normalizeVnEduText(row[2]);
+   const header=(rows[h]||[]).map(v=>normalizeVnEduText(v).toLowerCase());
+   const col=(patterns,fallback=-1)=>{
+       const i=header.findIndex(x=>patterns.some(p=>p.test(x)));
+       return i>=0?i:fallback;
+   };
+   const codeCol=col([/^mã học sinh$/i],1);
+   const nameCol=col([/^họ và tên$/i,/^họ tên$/i],2);
+   const dobCol=col([/^ngày sinh$/i],4);
+   const genderCol=col([/^giới tính$/i],5);
+   for(let r=h+1;r<rows.length;r++){
+    const row=rows[r],code=normalizeVnEduText(row[codeCol]),name=normalizeVnEduText(row[nameCol]);
     if(!/^\d+$/.test(code)||!name)continue;
-    parsed.push({student_code:code,full_name:name,dob:parseVnEduDate(row[4])||null,gender:normalizeVnEduText(row[5]).toLowerCase()==='x'?'Nữ':'Nam',class_name:cls,grade:cls[0]});
+    const genderRaw=normalizeVnEduText(row[genderCol]).toLowerCase();
+    const gender=genderRaw==='x'||genderRaw==='nữ'||genderRaw==='nu'?'Nữ':'Nam';
+    parsed.push({student_code:code,full_name:name,dob:parseVnEduDate(row[dobCol])||null,gender,class_name:cls,grade:cls[0]});
    }
   }
   if(!parsed.length)throw new Error('Không tìm thấy học sinh đúng cấu trúc file mẫu.');
@@ -7428,7 +7440,7 @@ async function exportVnEduScores(){
     const cls=document.getElementById('exportScoreClass')?.value||document.getElementById('scoreClass')?.value||'',period=document.getElementById('vneduPeriod')?.value||'gk1',subject=APP_STATE.currentSubject;
     if(!cls){showToast('Hãy chọn lớp trước khi xuất VNEDU.','warning');return;}
     if(!getVnEduSubjectCode(subject)){showToast('Môn đang chọn chưa có mã VNEDU đã xác minh.','warning');return;}
-    if(!VNEDU_CLASS_PREFIX[cls]){showToast(`Chưa có mã VNEDU của lớp ${cls} trong file mẫu.`,'warning');return;}
+    if(!VNEDU_CLASS_PREFIX[cls]){showToast(`Chưa học được mã VNEDU của lớp ${cls}. Hãy nhập 1 file điểm VNEDU gốc của lớp này trước; ứng dụng sẽ tự ghi nhớ mã lớp rồi có thể xuất bình thường.`,'warning');return;}
     if(typeof ExcelJS==='undefined'){showToast('Chưa tải được thư viện ExcelJS. Hãy kiểm tra Internet và tải lại trang.','error');return;}
     try{
         const wb=new ExcelJS.Workbook();wb.creator='VNEDU compatible - Trường TH Trần Quốc Toản';wb.created=new Date();
@@ -7498,7 +7510,11 @@ function collectVnEduImportRows(wb){
         if(!rows?.length)continue;
         const info=parseVnEduTechnicalCode(rows?.[5]?.[1]||rows?.[5]?.[0]||'');
         if(!info){errors.push(`${sn}: không đọc được mã kỹ thuật tại B6`);continue;}
-        if(!info.cls){errors.push(`${sn}: mã lớp ${info.prefix} chưa có trong bảng ánh xạ`);continue;}
+        if(!info.cls){
+            const detectedClass=getVnEduClassFromHeaderRows(rows);
+            if(detectedClass&&rememberVnEduClassPrefix(detectedClass,info.prefix))info.cls=detectedClass;
+        }
+        if(!info.cls){errors.push(`${sn}: chưa xác định được lớp cho mã VNEDU ${info.prefix}`);continue;}
         if(selectedPeriod&&info.period!==selectedPeriod){errors.push(`${sn}: giai đoạn ${info.period.toUpperCase()} khác lựa chọn ${selectedPeriod.toUpperCase()}`);continue;}
         if(!firstTarget) firstTarget={sheet:sn,cls:info.cls,subject:info.subject,period:info.period};
         const h=rows.findIndex(r=>normalizeVnEduText(r?.[0]).toUpperCase()==='STT'&&/Mã học sinh/i.test(normalizeVnEduText(r?.[1])));
@@ -7548,9 +7564,24 @@ async function importVnEduWorkbookCore(file,modeLabel){
         throw new Error(`${preview}${parsed.errors.length>6?`\n... và ${parsed.errors.length-6} lỗi khác`:''}`);
     }
     if(!parsed.sheetStats.length)throw new Error('Không tìm thấy sheet VNEDU hợp lệ.');
+    // BƯỚC 150.4.6: file VNEDU gốc có thể hoàn toàn chưa có điểm/nhận xét.
+    // Khi đó vẫn phải chấp nhận file để học mã kỹ thuật lớp, không báo lỗi.
     if(!parsed.records.length){
-        const detected=parsed.sheetStats.map(x=>`${x.sheet}: 0 dòng có điểm/nhận xét`).join('\n');
-        throw new Error(`File đúng cấu trúc VNEDU nhưng không có dữ liệu điểm/nhận xét nào để cập nhật.\n${detected}`);
+        const target=parsed.firstTarget||parsed.sheetStats[0]||null;
+        if(target?.cls&&target?.sheet){
+            // Mã lớp đã được rememberVnEduClassPrefix() ghi ngay khi đọc mã kỹ thuật + tiêu đề lớp.
+            if(target?.subject) APP_STATE.currentSubject=target.subject;
+            renderPage('scores');
+            const periodEl=document.getElementById('vneduPeriod');
+            const classEl=document.getElementById('scoreClass');
+            const exportClassEl=document.getElementById('exportScoreClass');
+            if(periodEl) periodEl.value=target.period||periodEl.value;
+            if(classEl) classEl.value=target.cls||'';
+            if(exportClassEl) exportClassEl.value=target.cls||'';
+            initScoreTable();
+            return {updated:0,target,sheetStats:parsed.sheetStats,learnedOnly:true};
+        }
+        throw new Error('File đúng cấu trúc VNEDU nhưng chưa xác định được lớp để ghi nhớ mã kỹ thuật.');
     }
     const summary=parsed.sheetStats.filter(x=>x.count>0).map(x=>`${x.sheet}: ${x.count}`).join('\n');
     if(!window.confirm(`${modeLabel}\n\nĐã đọc ${parsed.sheetStats.length} sheet, có ${parsed.records.length} dòng có dữ liệu.\n\n${summary}\n\nTiếp tục ghi vào hệ thống?`))return null;
@@ -7579,13 +7610,17 @@ async function importVnEduWorkbookCore(file,modeLabel){
 }
 async function importVnEduScoresExcel(event){
     if(!requireEditPermission('nhập điểm VNEDU')){if(event?.target)event.target.value='';return;}const file=event?.target?.files?.[0];if(!file)return;
-    try{const result=await importVnEduWorkbookCore(file,'NHẬP VNEDU LỚP');if(result?.updated)showToast(`Đã nhập ${result.updated} dòng VNEDU. Đang hiển thị ${result.target?.subject||''} - ${result.target?.cls||''} - ${(result.target?.period||'').toUpperCase()}.`,'success');}
+    try{const result=await importVnEduWorkbookCore(file,'NHẬP VNEDU LỚP');
+        if(result?.learnedOnly)showToast(`Đã học mã VNEDU của lớp ${result.target?.cls||''}. File chưa có điểm/nhận xét nên không có dữ liệu nào bị ghi đè. Bây giờ có thể Xuất VNEDU lớp này.`, 'success');
+        else if(result?.updated)showToast(`Đã nhập ${result.updated} dòng VNEDU. Đang hiển thị ${result.target?.subject||''} - ${result.target?.cls||''} - ${(result.target?.period||'').toUpperCase()}.`,'success');}
     catch(err){console.error(err);showToast('Lỗi nhập điểm VNEDU: '+err.message,'error');}
     finally{if(event?.target)event.target.value='';}
 }
 async function importVnEduTeachingWorkbook(event){
     if(!requireEditPermission('nhập các môn tôi dạy từ VNEDU')){if(event?.target)event.target.value='';return;}const file=event?.target?.files?.[0];if(!file)return;
-    try{const result=await importVnEduWorkbookCore(file,'NHẬP CÁC MÔN TÔI DẠY');if(result?.updated)showToast(`Đã nhập ${result.updated} dòng từ "Các môn tôi dạy". Đang mở ${result.target?.subject||''} - ${result.target?.cls||''} - ${(result.target?.period||'').toUpperCase()}.`,'success');}
+    try{const result=await importVnEduWorkbookCore(file,'NHẬP CÁC MÔN TÔI DẠY');
+        if(result?.learnedOnly)showToast(`Đã học mã VNEDU của lớp ${result.target?.cls||''}. File chưa có điểm/nhận xét nên không cập nhật điểm.`, 'success');
+        else if(result?.updated)showToast(`Đã nhập ${result.updated} dòng từ "Các môn tôi dạy". Đang mở ${result.target?.subject||''} - ${result.target?.cls||''} - ${(result.target?.period||'').toUpperCase()}.`,'success');}
     catch(err){console.error(err);showToast('Lỗi nhập các môn tôi dạy: '+err.message,'error');}
     finally{if(event?.target)event.target.value='';}
 }
