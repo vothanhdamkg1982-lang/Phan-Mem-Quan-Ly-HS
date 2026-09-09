@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn - Hệ thống quản lý học sinh</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=150412">
+    <link rel="stylesheet" href="style.css?v=1506">
     <!-- Thêm thư viện XLSX để xuất file Excel -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <!-- ExcelJS: xuất file VNEDU có định dạng, đường viền, căn lề -->
@@ -22,16 +22,32 @@
         <header class="site-header">
             <div class="site-container site-nav-wrap">
                 <a class="site-brand" href="#trang-chu" aria-label="Trang chủ">
-                    <div class="site-brand-mark site-brand-logo"><img src="assets/logo-lai-son.png" alt="Logo Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn"></div>
+                    <div class="site-brand-mark site-brand-logo"><img src="assets/logo-lai-son.png" alt="Logo Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn" decoding="async"></div>
                     <div>
                         <strong id="publicSchoolName">TRƯỜNG TIỂU HỌC-TRUNG HỌC CƠ SỞ & TRUNG HỌC PHỔ THÔNG LẠI SƠN</strong>
                         <span>Kỷ cương · Tình thương · Trách nhiệm</span>
                     </div>
                 </a>
                 <div class="site-top-motto"><i class="fas fa-school-flag"></i><span>Cổng thông tin điện tử nhà trường</span></div>
+                <button type="button" id="publicMobileMenuBtn" class="public-mobile-menu-btn" aria-label="Mở menu website" aria-expanded="false" aria-controls="publicMobileMenu"><i class="fas fa-bars"></i></button>
                 <button class="site-login-btn" data-open-login><i class="fas fa-lock"></i> Đăng nhập</button>
             </div>
         </header>
+        <div id="publicMobileMenu" class="public-mobile-menu" aria-hidden="true">
+            <div class="public-mobile-menu-panel">
+                <div class="public-mobile-menu-head"><strong>Danh mục website</strong><button type="button" id="publicMobileMenuClose" aria-label="Đóng menu"><i class="fas fa-xmark"></i></button></div>
+                <nav aria-label="Điều hướng website trên điện thoại">
+                    <a href="#trang-chu"><i class="fas fa-house"></i><span>Trang chủ</span></a>
+                    <a href="#gioi-thieu"><i class="fas fa-school"></i><span>Giới thiệu</span></a>
+                    <a href="#tin-tuc"><i class="fas fa-newspaper"></i><span>Tin tức - Sự kiện</span></a>
+                    <a href="#hinh-anh"><i class="fas fa-images"></i><span>Thư viện ảnh</span></a>
+                    <a href="#video"><i class="fas fa-circle-play"></i><span>Video hoạt động</span></a>
+                    <a href="#tai-lieu"><i class="fas fa-folder-open"></i><span>Tài liệu công khai</span></a>
+                    <a href="#lien-he"><i class="fas fa-phone"></i><span>Liên hệ</span></a>
+                </nav>
+                <button class="public-mobile-manage-btn" data-open-login><i class="fas fa-right-to-bracket"></i> Vào hệ thống quản lý</button>
+            </div>
+        </div>
 
         <main>
             <section id="trang-chu" class="site-hero public-u-hero">
@@ -52,7 +68,7 @@
                         <div class="hero-banner-frame" id="publicHeroBanner" aria-label="Banner hoạt động nhà trường">
                             <div id="publicHeroSlides" class="public-hero-slides">
                                 <figure class="public-hero-slide active" data-hero-index="0">
-                                    <img src="assets/banner-lai-son.png" alt="Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn" class="hero-banner-image">
+                                    <img src="assets/banner-lai-son.png" alt="Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn" class="hero-banner-image" decoding="async" fetchpriority="high">
                                 </figure>
                             </div>
                             <button type="button" class="public-hero-arrow public-hero-prev" id="publicHeroPrev" aria-label="Ảnh banner trước"><i class="fas fa-chevron-left"></i></button>
@@ -100,7 +116,7 @@
             <section id="gioi-thieu" class="site-section about-school-section">
                 <div class="site-container about-school-grid">
                     <div class="about-school-visual">
-                        <img src="assets/logo-lai-son.png" alt="Logo Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn">
+                        <img src="assets/logo-lai-son.png" alt="Logo Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn" decoding="async">
                         <div class="about-school-badge"><i class="fas fa-location-dot"></i><span>Kiên Hải · An Giang</span></div>
                     </div>
                     <div class="about-school-copy">
@@ -139,6 +155,7 @@
             <section id="tai-lieu" class="site-section document-section">
                 <div class="site-container">
                     <div class="section-heading"><span>THƯ VIỆN TÀI LIỆU</span><h2>Tài liệu & hướng dẫn</h2><p>Văn bản, biểu mẫu và tài liệu được nhà trường công khai để tra cứu thuận tiện.</p></div>
+                    <div id="publicDocumentToolbar" class="public-document-toolbar" aria-label="Tìm kiếm và lọc tài liệu"></div>
                     <div id="publicDocumentGrid" class="document-grid"><div class="public-content-loading"><i class="fas fa-spinner fa-spin"></i> Đang tải tài liệu...</div></div>
                 </div>
             </section>
@@ -162,7 +179,7 @@
 
         <footer class="site-footer">
             <div class="site-container footer-grid">
-                <div class="footer-brand"><div class="site-brand-mark site-brand-logo"><img src="assets/logo-lai-son.png" alt="Logo Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn"></div><div><strong>TRƯỜNG TIỂU HỌC-TRUNG HỌC CƠ SỞ & TRUNG HỌC PHỔ THÔNG LẠI SƠN</strong><p>Đặc khu Kiên Hải, tỉnh An Giang</p></div></div>
+                <div class="footer-brand"><div class="site-brand-mark site-brand-logo"><img src="assets/logo-lai-son.png" alt="Logo Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn" decoding="async"></div><div><strong>TRƯỜNG TIỂU HỌC-TRUNG HỌC CƠ SỞ & TRUNG HỌC PHỔ THÔNG LẠI SƠN</strong><p>Đặc khu Kiên Hải, tỉnh An Giang</p></div></div>
                 <div><h4>Liên kết nhanh</h4><a href="#trang-chu">Trang chủ</a><a href="#gioi-thieu">Giới thiệu</a><a href="#tin-tuc">Tin tức</a><a href="#hinh-anh">Hình ảnh</a><a href="#video">Video</a><a href="#tai-lieu">Tài liệu</a><a href="#lien-ket">Liên kết</a></div>
                 <div><h4>Hỗ trợ</h4><a href="#">Hướng dẫn sử dụng</a><a href="#">Câu hỏi thường gặp</a><button class="footer-login-link" data-open-login>Đăng nhập hệ thống</button></div>
                 <div><h4>Liên hệ</h4><p><i class="fas fa-location-dot"></i> Ấp Bãi Nhà A, Đặc khu Kiên Hải, tỉnh An Giang</p><p><i class="fas fa-phone"></i> <a href="tel:0942775343">0942 775 343</a></p><p><i class="fas fa-envelope"></i> <a href="mailto:vothanhdamkg1982@gmail.com">vothanhdamkg1982@gmail.com</a></p></div>
@@ -221,7 +238,7 @@
         <div class="login-box">
             <button type="button" id="loginCloseBtn" class="login-close-btn" aria-label="Đóng"><i class="fas fa-times"></i></button>
             <div class="login-logo login-school-logo">
-                <img src="assets/logo-lai-son.png" alt="Logo Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn">
+                <img src="assets/logo-lai-son.png" alt="Logo Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn" decoding="async">
             </div>
             <h2 class="login-title">Đăng nhập hệ thống</h2>
             <form id="loginForm">
@@ -334,7 +351,7 @@
     </div>
 
     <script type="module" src="supabase.js?v=14858"></script>
-    <script type="module" src="script.js?v=150412"></script>
+    <script type="module" src="script.js?v=1506"></script>
     <div id="sidebarOverlay" class="sidebar-overlay"></div>
 </body>
 </html>

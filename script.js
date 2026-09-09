@@ -322,15 +322,6 @@ function getWheelStudents() {
 // DRAW WHEEL
 // ============================================================
 
-function escapeWheelHtml(value) {
-    return String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-}
-
 function updateWheelFallback(students) {
     const fallback = document.getElementById('wheelFallback');
     if (!fallback) return;
@@ -370,7 +361,7 @@ function updateWheelFallback(students) {
         const parts = full.split(/\s+/).filter(Boolean);
         const shortName = parts.length > 2 ? parts.slice(-2).join(' ') : full;
         const angle = i * step + step / 2 - 90;
-        return `<span class="wheel-fallback-label" style="--label-angle:${angle}deg" title="${escapeWheelHtml(full)}">${escapeWheelHtml(shortName)}</span>`;
+        return `<span class="wheel-fallback-label" style="--label-angle:${angle}deg" title="${escapeHtml(full)}">${escapeHtml(shortName)}</span>`;
     }).join('');
 
     fallback.innerHTML = labels + '<span class="wheel-fallback-center">🎯</span>';
@@ -396,11 +387,7 @@ function drawWheel() {
     
     const students = getWheelStudents();
     const count = students.length;
-    try {
-        updateWheelFallback(students);
-    } catch (err) {
-        console.warn('Không thể cập nhật bánh xe dự phòng:', err);
-    }
+    updateWheelFallback(students);
     
     if (count === 0) {
         ctx2.clearRect(0, 0, canvas2.width, canvas2.height);
@@ -5883,6 +5870,52 @@ function setPublicNewsCategory(category='Tất cả'){
     PUBLIC_NEWS_CATEGORY=String(category||'Tất cả');
     renderPublicNews(PUBLIC_POST_CACHE);
 }
+let PUBLIC_DOCUMENT_CACHE=[];
+let PUBLIC_DOCUMENT_CATEGORY='Tất cả';
+let PUBLIC_DOCUMENT_SEARCH='';
+function publicDocumentIcon(item={}){
+    const text=String(item.file_url||'').split('?')[0].toLowerCase();
+    if(text.endsWith('.pdf')) return 'fa-file-pdf';
+    if(/\.(doc|docx)$/.test(text)) return 'fa-file-word';
+    if(/\.(xls|xlsx|csv)$/.test(text)) return 'fa-file-excel';
+    if(/\.(ppt|pptx)$/.test(text)) return 'fa-file-powerpoint';
+    if(/\.(zip|rar|7z)$/.test(text)) return 'fa-file-zipper';
+    return 'fa-file-lines';
+}
+function publicDocumentType(item={}){
+    const text=String(item.file_url||'').split('?')[0].toLowerCase();
+    if(text.endsWith('.pdf')) return 'PDF';
+    if(/\.(doc|docx)$/.test(text)) return 'WORD';
+    if(/\.(xls|xlsx|csv)$/.test(text)) return 'EXCEL';
+    if(/\.(ppt|pptx)$/.test(text)) return 'POWERPOINT';
+    if(/\.(zip|rar|7z)$/.test(text)) return 'TỆP NÉN';
+    return 'TÀI LIỆU';
+}
+function renderPublicDocuments(items=PUBLIC_DOCUMENT_CACHE){
+    const grid=document.getElementById('publicDocumentGrid'), toolbar=document.getElementById('publicDocumentToolbar');
+    if(!grid) return;
+    const all=Array.isArray(items)?items:[];
+    const categories=['Tất cả',...new Set(all.map(x=>String(x.category||'Tài liệu').trim()).filter(Boolean))];
+    if(PUBLIC_DOCUMENT_CATEGORY!=='Tất cả'&&!categories.includes(PUBLIC_DOCUMENT_CATEGORY)) PUBLIC_DOCUMENT_CATEGORY='Tất cả';
+    const q=PUBLIC_DOCUMENT_SEARCH.trim().toLocaleLowerCase('vi');
+    const filtered=all.filter(x=>{
+        const cat=String(x.category||'Tài liệu').trim();
+        const okCat=PUBLIC_DOCUMENT_CATEGORY==='Tất cả'||cat===PUBLIC_DOCUMENT_CATEGORY;
+        const hay=[x.title,x.description,x.category].map(v=>String(v||'').toLocaleLowerCase('vi')).join(' ');
+        return okCat&&(!q||hay.includes(q));
+    });
+    if(toolbar) toolbar.innerHTML=`<div class="public-document-search"><i class="fas fa-magnifying-glass"></i><input type="search" value="${publicEscape(PUBLIC_DOCUMENT_SEARCH)}" placeholder="Tìm tài liệu..." oninput="setPublicDocumentSearch(this.value)" aria-label="Tìm tài liệu"></div><div class="public-document-filter-chips">${categories.map(cat=>`<button type="button" class="${cat===PUBLIC_DOCUMENT_CATEGORY?'active':''}" onclick="setPublicDocumentCategory('${publicEscape(cat).replace(/'/g,'&#39;')}')">${publicEscape(cat)}</button>`).join('')}</div><span class="public-document-count">${filtered.length}/${all.length} tài liệu</span>`;
+    if(!filtered.length){grid.innerHTML='<div class="public-empty-state"><i class="fas fa-folder-open"></i><strong>Không tìm thấy tài liệu phù hợp</strong><span>Hãy đổi từ khóa hoặc chọn chuyên mục khác.</span></div>';return;}
+    grid.innerHTML=filtered.map(item=>{
+        const url=publicSafeExternalUrl(item.file_url||'');
+        const cat=publicEscape(item.category||'Tài liệu');
+        const title=publicEscape(item.title||'Tài liệu');
+        return `<article class="public-document-card"><div class="public-document-icon"><i class="fas ${publicDocumentIcon(item)}"></i></div><div class="public-document-copy"><div class="public-document-meta"><span>${cat}</span><small>${publicDocumentType(item)} · ${publicDate(item.created_at)}</small></div><h3>${title}</h3><p>${publicEscape(item.description||'Tài liệu công khai của nhà trường.')}</p></div><div class="public-document-actions">${url?`<a class="public-doc-link" href="${url}" target="_blank" rel="noopener"><i class="fas fa-arrow-up-right-from-square"></i> Mở tài liệu</a><a class="public-doc-download" href="${url}" download target="_blank" rel="noopener" aria-label="Tải ${title}"><i class="fas fa-download"></i></a>`:'<span class="public-doc-unavailable"><i class="fas fa-clock"></i> Đang cập nhật tệp</span>'}</div></article>`;
+    }).join('');
+}
+function setPublicDocumentCategory(category='Tất cả'){PUBLIC_DOCUMENT_CATEGORY=String(category||'Tất cả');renderPublicDocuments();}
+function setPublicDocumentSearch(value=''){PUBLIC_DOCUMENT_SEARCH=String(value||'');renderPublicDocuments();}
+
 async function loadPublicWebsiteContent() {
     const newsGrid = document.getElementById('publicNewsGrid');
     const docGrid = document.getElementById('publicDocumentGrid');
@@ -5903,9 +5936,10 @@ async function loadPublicWebsiteContent() {
             if (!posts.length) newsGrid.innerHTML = '<div class="public-empty-state"><i class="fas fa-newspaper"></i><strong>Chưa có tin tức công khai</strong><span>Nội dung sẽ được cập nhật bởi nhà trường.</span></div>';
             else renderPublicNews(posts);
         }
+        PUBLIC_DOCUMENT_CACHE = docs;
         if (docGrid) {
             if (!docs.length) docGrid.innerHTML = '<div class="public-empty-state"><i class="fas fa-folder-open"></i><strong>Chưa có tài liệu công khai</strong><span>Tài liệu sẽ được cập nhật bởi nhà trường.</span></div>';
-            else docGrid.innerHTML = docs.map(item=>`<article><i class="fas fa-file-lines"></i><div><h3>${publicEscape(item.title)}</h3><p>${publicEscape(item.description || item.category || '')}</p></div>${item.file_url ? `<a class="public-doc-link" href="${publicEscape(item.file_url)}" target="_blank" rel="noopener"><i class="fas fa-arrow-up-right-from-square"></i> Mở tài liệu</a>` : '<span>Chưa có liên kết</span>'}</article>`).join('');
+            else renderPublicDocuments(docs);
         }
     } catch (err) {
         console.warn('Không thể tải nội dung website công khai:', err);
@@ -6703,6 +6737,40 @@ function initPublicWebsite() {
         if (e.target?.id === 'loginScreen') showPublicSite();
     });
 
+    // BƯỚC 150.6: menu website tối ưu cho điện thoại/tablet.
+    const publicMobileMenuBtn = document.getElementById('publicMobileMenuBtn');
+    const publicMobileMenu = document.getElementById('publicMobileMenu');
+    const publicMobileMenuClose = document.getElementById('publicMobileMenuClose');
+    const setPublicMobileMenu = (open) => {
+        if (!publicMobileMenu) return;
+        publicMobileMenu.classList.toggle('open', open);
+        publicMobileMenu.setAttribute('aria-hidden', open ? 'false' : 'true');
+        publicMobileMenuBtn?.setAttribute('aria-expanded', open ? 'true' : 'false');
+        document.body.classList.toggle('public-menu-open', open);
+    };
+    publicMobileMenuBtn?.addEventListener('click', () => setPublicMobileMenu(!publicMobileMenu?.classList.contains('open')));
+    publicMobileMenuClose?.addEventListener('click', () => setPublicMobileMenu(false));
+    publicMobileMenu?.addEventListener('click', (event) => {
+        if (event.target === publicMobileMenu) setPublicMobileMenu(false);
+        if (event.target.closest?.('a[href^="#"]')) setPublicMobileMenu(false);
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && publicMobileMenu?.classList.contains('open')) setPublicMobileMenu(false);
+    });
+
+    // Kéo xuống đúng vị trí sau header sticky; đồng thời tránh URL hash nhảy giật trên mobile.
+    document.querySelectorAll('#publicSite a[href^="#"]').forEach((link) => {
+        link.addEventListener('click', (event) => {
+            const href = link.getAttribute('href');
+            if (!href || href === '#') return;
+            const target = document.querySelector(href);
+            if (!target) return;
+            event.preventDefault();
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            history.replaceState(null, '', href);
+        });
+    });
+
     const menuBtn = document.getElementById('siteMenuToggle');
     const nav = document.getElementById('siteNav');
     menuBtn?.addEventListener('click', () => nav?.classList.toggle('open'));
@@ -6757,7 +6825,7 @@ function initPublicWebsite() {
     // Menu active theo vị trí cuộn + nút về đầu trang.
     const siteHeader = document.querySelector('.site-header');
     const backToTop = document.getElementById('publicBackToTop');
-    const navLinks = [...document.querySelectorAll('.site-nav a[href^="#"]')];
+    const navLinks = [...document.querySelectorAll('#publicSite .u-side-nav a[href^="#"], #publicSite .public-mobile-menu a[href^="#"]')];
     const updatePublicScrollUI = () => {
         const y = window.scrollY || 0;
         siteHeader?.classList.toggle('scrolled', y > 10);
@@ -7952,3 +8020,6 @@ window.setPublicGalleryCategory = setPublicGalleryCategory; window.stepPublicGal
 window.showPublicSite = showPublicSite;
 window.showLoginFromPublic = showLoginFromPublic;
 window.showAuthenticatedApp = showAuthenticatedApp;
+
+window.setPublicDocumentCategory=setPublicDocumentCategory;
+window.setPublicDocumentSearch=setPublicDocumentSearch;

@@ -1,1 +1,0 @@
-Đã kiểm tra 2 khối dữ liệu, mỗi khối 164 bản ghi JSON hợp lệ; không có NUL/control; dùng PostgreSQL dollar-quote; dòng đầu tiên là begin;.
