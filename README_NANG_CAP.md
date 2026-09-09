@@ -1,3 +1,13 @@
+# BƯỚC 150.4.7 – SỬA THỐNG KÊ KHEN THƯỞNG / KỶ LUẬT THEO LỚP
+
+- Khen thưởng và Kỷ luật trong module Thống kê nay lọc đúng theo Lớp báo cáo.
+- Đồng thời thống kê theo đúng môn đang chọn dựa trên subject_id/subject.
+- Biểu đồ và tổng học sinh chỉ tính các lớp thực sự học môn đang chọn.
+- Không thay đổi Supabase, VNEDU, Excel, phân quyền, website công khai hay dữ liệu hiện có.
+- Không cần chạy SQL.
+
+Kiểm tra: Thống kê → chọn môn → chọn 3A1 → quan sát Khen thưởng/Kỷ luật; đổi lại Tất cả lớp để đối chiếu.
+
 # BƯỚC 150.4.1 – Bổ sung lớp 1, lớp 2 và học sinh
 
 Nguồn dữ liệu: 8 file danh sách học sinh VNEDU người dùng cung cấp ngày 08/09/2026.
@@ -54,3 +64,17 @@ BƯỚC 150.4.3: SQL lớp 1-2 đã sửa cú pháp, bắt đầu bằng begin; 
 - File VNEDU hợp lệ nhưng chưa có điểm/nhận xét vẫn được dùng để học mã lớp.
 - Không ghi đè điểm khi toàn bộ dòng dữ liệu đang trống.
 - Sau khi học mã, có thể Xuất VNEDU lớp ngay.
+
+
+## Bước 150.4.8 - Sửa giao diện điện thoại
+- Trang công khai: bỏ min-height desktop còn áp trên mobile, loại khoảng trắng dài sau banner.
+- Vòng quay: thêm resize canvas tương thích iOS/Safari, vẽ lại sau layout/resize/orientation.
+- Ép kích thước wrapper/canvas trên mobile để vòng quay luôn hiển thị.
+- Không thay đổi dữ liệu, Supabase, Excel hay VNEDU.
+
+
+## BƯỚC 150.4.9 - SỬA LỖI KHÔNG ĐĂNG NHẬP
+- Nguyên nhân: script.js khai báo trùng hàm `resizeWheelCanvas()` hai lần trong ES module, làm toàn bộ module dừng với SyntaxError trước khi khởi tạo đăng nhập.
+- Đã giữ lại duy nhất hàm resizeWheelCanvas mới dành cho mobile/iOS và xóa bản cũ.
+- Không thay đổi Supabase, dữ liệu học sinh, Excel, VNEDU hoặc phân quyền.
+- Đổi cache version lên 15049 để trình duyệt tải đúng JavaScript mới.

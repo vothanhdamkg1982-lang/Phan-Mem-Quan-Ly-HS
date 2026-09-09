@@ -130,28 +130,58 @@ function renderWheel() {
     `;
 }
 
-function initWheel() {
+function resizeWheelCanvas() {
     const canvas = document.getElementById('wheelCanvas');
-    if (!canvas) return;
-    
-    const container = canvas.parentElement;
-    const containerWidth = container.clientWidth || 500;
-    const size = Math.min(containerWidth, 500);
-    
-    canvas.width = size;
-    canvas.height = size;
-    canvas.style.width = size + 'px';
-    canvas.style.height = size + 'px';
-    
+    if (!canvas) return false;
+
+    const wrapper = canvas.closest('.wheel-wrapper');
+    if (!wrapper) return false;
+
+    // iOS/Safari đôi khi trả clientWidth = 0 ngay sau khi render.
+    // Lấy kích thước thực tế và giới hạn theo chiều rộng màn hình.
+    const rect = wrapper.getBoundingClientRect();
+    const viewportWidth = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+    let cssSize = Math.round(rect.width || wrapper.clientWidth || 0);
+    if (!cssSize || cssSize < 40) {
+        cssSize = Math.min(500, Math.max(260, viewportWidth - 48));
+    }
+    cssSize = Math.min(cssSize, 500);
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const pixelSize = Math.max(260, Math.round(cssSize * dpr));
+
+    canvas.style.width = cssSize + 'px';
+    canvas.style.height = cssSize + 'px';
+
+    if (canvas.width !== pixelSize || canvas.height !== pixelSize) {
+        canvas.width = pixelSize;
+        canvas.height = pixelSize;
+    }
+
     WHEEL_STATE.wheelCanvas = canvas;
     WHEEL_STATE.ctx = canvas.getContext('2d');
-    
+    return !!WHEEL_STATE.ctx;
+}
+
+function initWheel() {
+    if (!resizeWheelCanvas()) return;
+
     if (WHEEL_STATE.selectedClassId) {
         loadWheelStudents(WHEEL_STATE.selectedClassId);
     } else {
         drawWheel();
     }
     updateWheelStats();
+
+    // Vẽ lại sau khi layout mobile/Safari ổn định.
+    requestAnimationFrame(() => {
+        resizeWheelCanvas();
+        drawWheel();
+    });
+    setTimeout(() => {
+        resizeWheelCanvas();
+        drawWheel();
+    }, 180);
 }
 
 function onWheelClassChange() {
@@ -292,17 +322,18 @@ function getWheelStudents() {
 // ============================================================
 
 function drawWheel() {
+    const liveCanvas = document.getElementById('wheelCanvas');
+    if (!liveCanvas) return;
+
+    // Nếu canvas vừa được thay bởi renderPage hoặc Safari thay đổi kích thước,
+    // luôn nối lại context với phần tử đang hiện trên màn hình.
+    if (WHEEL_STATE.wheelCanvas !== liveCanvas || !WHEEL_STATE.ctx || liveCanvas.width < 40 || liveCanvas.height < 40) {
+        if (!resizeWheelCanvas()) return;
+    }
+
     const canvas = WHEEL_STATE.wheelCanvas;
     const ctx = WHEEL_STATE.ctx;
-    if (!canvas || !ctx) {
-        const canvasEl = document.getElementById('wheelCanvas');
-        if (canvasEl) {
-            WHEEL_STATE.wheelCanvas = canvasEl;
-            WHEEL_STATE.ctx = canvasEl.getContext('2d');
-        } else {
-            return;
-        }
-    }
+    if (!canvas || !ctx) return;
     
     const canvas2 = WHEEL_STATE.wheelCanvas;
     const ctx2 = WHEEL_STATE.ctx;
@@ -623,24 +654,6 @@ function resetWheel() {
 // PRESENTATION MODE
 // ============================================================
 
-function resizeWheelCanvas() {
-    const canvas = document.getElementById('wheelCanvas');
-    if (!canvas) return;
-    const container = canvas.parentElement;
-    if (!container) return;
-    
-    const containerWidth = container.clientWidth || 500;
-    const size = Math.min(containerWidth, 500);
-    
-    canvas.width = size;
-    canvas.height = size;
-    canvas.style.width = size + 'px';
-    canvas.style.height = size + 'px';
-    
-    WHEEL_STATE.wheelCanvas = canvas;
-    WHEEL_STATE.ctx = canvas.getContext('2d');
-    drawWheel();
-}
 function goHome() {
     // 1. Tắt chế độ trình chiếu nếu đang mở
     if (typeof WHEEL_STATE !== 'undefined' && WHEEL_STATE.presentationMode) {
@@ -4793,10 +4806,21 @@ APP_STATE.statSubject = statSubject;
 const statAccessibleClasses = getAccessibleClassesForSubject(statSubject);
 const statAllowedClassIds = new Set(statAccessibleClasses.map(c => c.id));
 const statClass = APP_STATE.statClass || '';
-let statStudents = hasAssignedScope()
-    ? APP_STATE.students.filter(student => statAllowedClassIds.has(student.class_id))
-    : APP_STATE.students;
+
+// Thống kê chỉ trên các lớp thực sự học môn đang chọn, kể cả tài khoản admin.
+let statStudents = APP_STATE.students.filter(student => statAllowedClassIds.has(student.class_id));
 if (statClass) statStudents = statStudents.filter(student => student.class === statClass);
+
+// Khen thưởng / kỷ luật phải đi theo đúng lớp báo cáo và môn đang chọn.
+const statSubjectId = getSubjectId(statSubject);
+const statClassObj = statClass ? APP_STATE.classes.find(c => c.name === statClass) : null;
+const matchesStatScope = item => {
+    const classMatched = !statClass || item.classId === statClassObj?.id;
+    const subjectMatched = !statSubjectId || item.subjectId === statSubjectId || item.subject === statSubject;
+    return classMatched && subjectMatched;
+};
+const statRewards = (APP_STATE.rewards || []).filter(matchesStatScope);
+const statDisciplines = (APP_STATE.disciplines || []).filter(matchesStatScope);
 
 let competenceEvaluated = 0;
 let qualityEvaluated = 0;
@@ -4855,8 +4879,8 @@ const qualityNotEvaluated =
             <div class="stats-grid mt-2">
                 <div class="stat-card"><div class="stat-label">Tổng học sinh</div><div class="stat-value">${statStudents.length}</div></div>
                 <div class="stat-card"><div class="stat-label">Số lớp</div><div class="stat-value">${statClass ? 1 : statAccessibleClasses.length}</div></div>
-                <div class="stat-card"><div class="stat-label">Khen thưởng</div><div class="stat-value">${APP_STATE.rewards.length}</div></div>
-                <div class="stat-card"><div class="stat-label">Kỷ luật</div><div class="stat-value">${APP_STATE.disciplines.length}</div></div>
+                <div class="stat-card"><div class="stat-label">Khen thưởng</div><div class="stat-value">${statRewards.length}</div></div>
+                <div class="stat-card"><div class="stat-label">Kỷ luật</div><div class="stat-value">${statDisciplines.length}</div></div>
             </div>
             <div class="stats-grid mt-2">
     <div class="stat-card">
@@ -4903,10 +4927,17 @@ function switchStatSubject(subject) {
     renderPage('statistics');
 }
 function initStatCharts() {
+    const statSubject =
+        APP_STATE.statSubject ||
+        APP_STATE.studentSubject ||
+        APP_STATE.currentSubject ||
+        APP_STATE.subjectCatalog?.[0]?.name ||
+        SUBJECTS[0] ||
+        'Tin học';
     const statClass = APP_STATE.statClass || '';
-    const statStudents = statClass
-        ? APP_STATE.students.filter(student => student.class === statClass)
-        : APP_STATE.students;
+    const allowedClassIds = new Set(getAccessibleClassesForSubject(statSubject).map(c => c.id));
+    let statStudents = APP_STATE.students.filter(student => allowedClassIds.has(student.class_id));
+    if (statClass) statStudents = statStudents.filter(student => student.class === statClass);
 
     const grades = ['1', '2', '3', '4', '5'];
     const counts = grades.map(g => statStudents.filter(s => s.grade === g).length);
@@ -4936,14 +4967,6 @@ function initStatCharts() {
         },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
     });
-
-    const statSubject =
-    APP_STATE.statSubject ||
-    APP_STATE.studentSubject ||
-    APP_STATE.currentSubject ||
-    APP_STATE.subjectCatalog?.[0]?.name ||
-    SUBJECTS[0] ||
-    'Tin học';
 
 APP_STATE.statSubject = statSubject;
 
@@ -7823,6 +7846,22 @@ window.showPublicAnnouncementEditor=showPublicAnnouncementEditor; window.editPub
 // phải được công khai trên window vì script.js chạy dưới dạng ES module.
 window.renderPage = renderPage;
 window.saveStudentInline = saveStudentInline;
+
+
+// Bước 150.4.8: giữ vòng quay hiển thị đúng khi xoay máy/thay đổi viewport trên mobile.
+let wheelResizeTimer = null;
+window.addEventListener('resize', () => {
+    if (!document.getElementById('wheelCanvas')) return;
+    clearTimeout(wheelResizeTimer);
+    wheelResizeTimer = setTimeout(() => {
+        if (resizeWheelCanvas()) drawWheel();
+    }, 120);
+});
+window.addEventListener('orientationchange', () => {
+    setTimeout(() => {
+        if (document.getElementById('wheelCanvas') && resizeWheelCanvas()) drawWheel();
+    }, 220);
+});
 
 window.publicVideoError = publicVideoError;
 window.setPublicVideoCategory = setPublicVideoCategory; window.openPublicVideoModal = openPublicVideoModal; window.closePublicVideoModal = closePublicVideoModal;

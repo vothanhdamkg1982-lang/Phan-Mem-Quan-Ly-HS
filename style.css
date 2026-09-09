@@ -1739,3 +1739,81 @@ a[onclick="goHome()"],
 
 /* BƯỚC 150.4.5 - bỏ bộ lọc phụ trùng lặp, giữ footer gọn */
 .student-export-hint{font-size:12px;color:var(--text-muted,#64748b);display:flex;align-items:center;gap:7px;line-height:1.4}.student-export-hint i{opacity:.8}@media(max-width:768px){.student-export-hint{font-size:11px;max-width:65%}}
+
+
+/* ============================================================
+   BƯỚC 150.4.8 - FIX MOBILE BANNER + VÒNG QUAY
+   ============================================================ */
+@media (max-width: 760px) {
+    /* Không giữ min-height desktop trên điện thoại: tránh khoảng trắng dài sau banner. */
+    #publicSite .public-u-hero {
+        min-height: 0 !important;
+        height: auto !important;
+        padding: 14px 0 22px !important;
+    }
+    #publicSite .public-u-shell {
+        align-items: start !important;
+    }
+    #publicSite .public-u-center {
+        min-height: 0 !important;
+        height: auto !important;
+    }
+    #publicSite .hero-banner-frame {
+        min-height: 0 !important;
+        height: auto !important;
+        aspect-ratio: 16 / 10 !important;
+    }
+    #publicSite .hero-banner-image {
+        min-height: 0 !important;
+        height: 100% !important;
+    }
+    #publicSite .hero-wave {
+        display: none !important;
+    }
+
+    /* Vòng quay: ép canvas có kích thước thực, không phụ thuộc layout Safari. */
+    .wheel-page {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: hidden;
+    }
+    .wheel-container {
+        width: 100%;
+        grid-template-columns: 1fr !important;
+        gap: 1rem !important;
+    }
+    .wheel-stage {
+        width: 100%;
+        min-width: 0;
+        gap: 1rem;
+    }
+    .wheel-wrapper {
+        display: block !important;
+        width: min(88vw, 360px) !important;
+        height: min(88vw, 360px) !important;
+        max-width: 360px !important;
+        aspect-ratio: auto !important;
+        flex: 0 0 auto;
+        margin: 18px auto 4px !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
+    .wheel-wrapper canvas,
+    #wheelCanvas {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        width: 100% !important;
+        height: 100% !important;
+        max-width: none !important;
+        max-height: none !important;
+        background: #10233f !important;
+        border-radius: 50%;
+    }
+    .wheel-pointer {
+        top: -18px !important;
+    }
+    .wheel-controls-center {
+        margin: 2px 0 10px;
+    }
+}
