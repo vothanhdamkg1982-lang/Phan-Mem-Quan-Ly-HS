@@ -322,6 +322,51 @@ function getWheelStudents() {
 // DRAW WHEEL
 // ============================================================
 
+function updateWheelFallback(students) {
+    const fallback = document.getElementById('wheelFallback');
+    if (!fallback) return;
+
+    const list = Array.isArray(students) ? students : [];
+    const count = list.length;
+    const colors = [
+        '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
+        '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9',
+        '#F8C471', '#82E0AA', '#F1948A', '#85929E', '#73C6B6',
+        '#E59866', '#AF7AC5', '#5DADE2', '#58D68D', '#F4D03F'
+    ];
+
+    if (!count) {
+        fallback.dataset.signature = '';
+        fallback.innerHTML = '<span class="wheel-fallback-empty">🎯</span>';
+        return;
+    }
+
+    const signature = list.map(s => s.id || s.student_code || s.fullName || s.name || '').join('|');
+    if (fallback.dataset.signature === signature) return;
+    fallback.dataset.signature = signature;
+
+    const step = 360 / count;
+    const stops = [];
+    for (let i = 0; i < count; i++) {
+        const a = i * step;
+        const b = (i + 1) * step;
+        const c = colors[i % colors.length];
+        stops.push(`${c} ${a}deg ${b}deg`);
+    }
+    fallback.style.setProperty('background', `conic-gradient(${stops.join(',')})`, 'important');
+
+    const labels = list.map((student, i) => {
+        const full = String(student?.fullName || student?.name || student?.student_name || `HS ${i + 1}`).trim();
+        // Trên màn hình điện thoại ưu tiên 2 từ cuối để tên đủ lớn và dễ đọc.
+        const parts = full.split(/\s+/).filter(Boolean);
+        const shortName = parts.length > 2 ? parts.slice(-2).join(' ') : full;
+        const angle = i * step + step / 2 - 90;
+        return `<span class="wheel-fallback-label" style="--label-angle:${angle}deg" title="${escapeHtml(full)}">${escapeHtml(shortName)}</span>`;
+    }).join('');
+
+    fallback.innerHTML = labels + '<span class="wheel-fallback-center">🎯</span>';
+}
+
 function drawWheel() {
     const liveCanvas = document.getElementById('wheelCanvas');
     if (!liveCanvas) return;
@@ -342,6 +387,7 @@ function drawWheel() {
     
     const students = getWheelStudents();
     const count = students.length;
+    updateWheelFallback(students);
     
     if (count === 0) {
         ctx2.clearRect(0, 0, canvas2.width, canvas2.height);
@@ -1465,53 +1511,12 @@ async function loadAllData() {
             if (!accessOk) return;
         }
 
-        // Nhóm 1: danh mục môn và lớp độc lập -> tải song song.
-        const [subjectsResult, classesResult] = await Promise.all([
-            supabase
-                .from('app3_subjects')
-                .select('id, name, grades, active')
-                .order('name'),
-            supabase
-                .from('app3_classes')
-                .select('*')
-                .order('name')
-        ]);
-
-        if (subjectsResult.error) {
-            console.warn(
-                'Không tải được app3_subjects, tiếp tục dùng cấu hình môn mặc định:',
-                subjectsResult.error
-            );
-            APP_STATE.allSubjectCatalog = SUBJECT_CONFIG.map(subject => ({
-                ...subject,
-                grades: [1, 2, 3, 4, 5],
-                active: true
-            }));
-        } else {
-            APP_STATE.allSubjectCatalog = subjectsResult.data || [];
-        }
-
-        APP_STATE.subjectCatalog = APP_STATE.allSubjectCatalog.filter(subject => subject.active !== false);
-        console.log('DANH MỤC MÔN HỌC:', APP_STATE.subjectCatalog);
-
-        if (classesResult.error) throw classesResult.error;
-        APP_STATE.allClasses = classesResult.data || [];
-        APP_STATE.classes = APP_STATE.allClasses;
-        APP_STATE.classMap = {};
-        APP_STATE.classes.forEach(c => { APP_STATE.classMap[c.name] = c.id; });
-
-        // Phân công đã được nạp cùng loadCurrentUserAccess(). Không query lại ở đây.
-        applyCurrentUserDisplayScope();
-
-        const visibleSubjectNames = APP_STATE.subjectCatalog.map(subject => subject.name);
-        ['currentSubject', 'studentSubject', 'statSubject', 'searchSubject'].forEach(key => {
-            if (visibleSubjectNames.length > 0 && !visibleSubjectNames.includes(APP_STATE[key])) {
-                APP_STATE[key] = visibleSubjectNames[0];
-            }
-        });
-
-        // Nhóm 2: các bảng nghiệp vụ độc lập -> tải song song.
+        // BƯỚC 150.4.11: gom toàn bộ truy vấn độc lập vào MỘT lượt song song.
+        // Trước đây app phải chờ môn/lớp xong mới bắt đầu tải học sinh, điểm, điểm danh...,
+        // tạo thêm một vòng chờ mạng trên cả máy tính và điện thoại.
         const [
+            subjectsResult,
+            classesResult,
             studentsResult,
             scoresResult,
             attendanceResult,
@@ -1521,6 +1526,14 @@ async function loadAllData() {
             filesResult,
             settingsResult
         ] = await Promise.all([
+            supabase
+                .from('app3_subjects')
+                .select('id, name, grades, active')
+                .order('name'),
+            supabase
+                .from('app3_classes')
+                .select('*')
+                .order('name'),
             supabase
                 .from('app3_students')
                 .select('*, app3_classes(name)')
@@ -1553,6 +1566,39 @@ async function loadAllData() {
                 .limit(1)
                 .maybeSingle()
         ]);
+
+        if (subjectsResult.error) {
+            console.warn(
+                'Không tải được app3_subjects, tiếp tục dùng cấu hình môn mặc định:',
+                subjectsResult.error
+            );
+            APP_STATE.allSubjectCatalog = SUBJECT_CONFIG.map(subject => ({
+                ...subject,
+                grades: [1, 2, 3, 4, 5],
+                active: true
+            }));
+        } else {
+            APP_STATE.allSubjectCatalog = subjectsResult.data || [];
+        }
+
+        APP_STATE.subjectCatalog = APP_STATE.allSubjectCatalog.filter(subject => subject.active !== false);
+        console.log('DANH MỤC MÔN HỌC:', APP_STATE.subjectCatalog.length);
+
+        if (classesResult.error) throw classesResult.error;
+        APP_STATE.allClasses = classesResult.data || [];
+        APP_STATE.classes = APP_STATE.allClasses;
+        APP_STATE.classMap = {};
+        APP_STATE.classes.forEach(c => { APP_STATE.classMap[c.name] = c.id; });
+
+        // Phân công đã được nạp cùng loadCurrentUserAccess(). Không query lại ở đây.
+        applyCurrentUserDisplayScope();
+
+        const visibleSubjectNames = APP_STATE.subjectCatalog.map(subject => subject.name);
+        ['currentSubject', 'studentSubject', 'statSubject', 'searchSubject'].forEach(key => {
+            if (visibleSubjectNames.length > 0 && !visibleSubjectNames.includes(APP_STATE[key])) {
+                APP_STATE[key] = visibleSubjectNames[0];
+            }
+        });
 
         if (studentsResult.error) throw studentsResult.error;
         if (scoresResult.error) throw scoresResult.error;
@@ -1590,12 +1636,7 @@ async function loadAllData() {
             APP_STATE.students = APP_STATE.students.filter(student => allowedClassIds.has(student.class_id));
         }
 
-        console.log('KIỂM TRA STUDENTS:', APP_STATE.students.map(s => ({
-            db_uuid: s.db_uuid,
-            id: s.id,
-            fullName: s.fullName,
-            class_id: s.class_id
-        })));
+        console.log('KIỂM TRA STUDENTS:', APP_STATE.students.length);
 
         // Lập map UUID -> học sinh một lần để tránh find() lặp khi xử lý điểm/điểm danh.
         const studentByUuid = new Map(APP_STATE.students.map(student => [student.db_uuid, student]));

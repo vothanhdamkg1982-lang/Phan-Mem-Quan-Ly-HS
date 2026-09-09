@@ -1891,3 +1891,62 @@ a[onclick="goHome()"],
         z-index: 6 !important;
     }
 }
+
+
+/* ============================================================
+   BƯỚC 150.4.11 - TÊN HỌC SINH TRÊN VÒNG QUAY MOBILE
+   ============================================================ */
+@media (max-width: 760px) {
+    .wheel-mobile-fallback {
+        isolation: isolate;
+    }
+
+    .wheel-mobile-fallback > .wheel-fallback-label {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44%;
+        height: 24px;
+        margin-top: -12px;
+        transform-origin: 0 50%;
+        transform: rotate(var(--label-angle)) translateX(54%) rotate(calc(-1 * var(--label-angle)));
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        padding-right: 5px;
+        box-sizing: border-box;
+        color: #fff;
+        font-size: clamp(8px, 2.7vw, 12px);
+        line-height: 1;
+        font-weight: 800;
+        text-shadow: 0 1px 3px rgba(0,0,0,.85);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        z-index: 2;
+        pointer-events: none;
+    }
+
+    .wheel-mobile-fallback > .wheel-fallback-center,
+    .wheel-mobile-fallback > .wheel-fallback-empty {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 5;
+        width: 21%;
+        aspect-ratio: 1;
+        border-radius: 50%;
+        background: #fff;
+        border: 3px solid #2563eb;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: clamp(22px, 7vw, 36px);
+        box-sizing: border-box;
+    }
+
+    /* Tâm cũ tạo bằng pseudo-element sẽ che tên; tâm mới dùng phần tử thật. */
+    .wheel-mobile-fallback::after { display: none !important; }
+    .wheel-mobile-fallback > span:not(.wheel-fallback-label):not(.wheel-fallback-center):not(.wheel-fallback-empty) { display:none !important; }
+}
