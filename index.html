@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn - Hệ thống quản lý học sinh</title>
+    <title>Trường Tiểu học-Trung học Cơ sở & Trung học phổ thông Lại Sơn_Phân hiệu trường Tiểu học Trần Quốc Toản - Hệ thống quản lý học sinh</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=1506">
+    <link rel="stylesheet" href="style.css?v=15074">
     <!-- Thêm thư viện XLSX để xuất file Excel -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <!-- ExcelJS: xuất file VNEDU có định dạng, đường viền, căn lề -->
@@ -22,9 +22,9 @@
         <header class="site-header">
             <div class="site-container site-nav-wrap">
                 <a class="site-brand" href="#trang-chu" aria-label="Trang chủ">
-                    <div class="site-brand-mark site-brand-logo"><img src="assets/logo-lai-son.png" alt="Logo Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn" decoding="async"></div>
+                    <div class="site-brand-mark site-brand-logo"><img src="assets/logo-phan-hieu-tran-quoc-toan.png" alt="Logo Trường Tiểu học-Trung học Cơ sở & Trung học phổ thông Lại Sơn_Phân hiệu trường Tiểu học Trần Quốc Toản" decoding="async"></div>
                     <div>
-                        <strong id="publicSchoolName">TRƯỜNG TIỂU HỌC-TRUNG HỌC CƠ SỞ & TRUNG HỌC PHỔ THÔNG LẠI SƠN</strong>
+                        <strong id="publicSchoolName" class="public-school-name"><span>TRƯỜNG TIỂU HỌC - TRUNG HỌC CƠ SỞ & TRUNG HỌC PHỔ THÔNG LẠI SƠN</span><em>PHÂN HIỆU TRƯỜNG TIỂU HỌC TRẦN QUỐC TOẢN</em></strong>
                         <span>Kỷ cương · Tình thương · Trách nhiệm</span>
                     </div>
                 </a>
@@ -68,13 +68,22 @@
                         <div class="hero-banner-frame" id="publicHeroBanner" aria-label="Banner hoạt động nhà trường">
                             <div id="publicHeroSlides" class="public-hero-slides">
                                 <figure class="public-hero-slide active" data-hero-index="0">
-                                    <img src="assets/banner-lai-son.png" alt="Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn" class="hero-banner-image" decoding="async" fetchpriority="high">
+                                    <img src="assets/banner-lai-son.png" alt="Trường Tiểu học-Trung học Cơ sở & Trung học phổ thông Lại Sơn_Phân hiệu trường Tiểu học Trần Quốc Toản" class="hero-banner-image" decoding="async" fetchpriority="high">
                                 </figure>
                             </div>
                             <button type="button" class="public-hero-arrow public-hero-prev" id="publicHeroPrev" aria-label="Ảnh banner trước"><i class="fas fa-chevron-left"></i></button>
                             <button type="button" class="public-hero-arrow public-hero-next" id="publicHeroNext" aria-label="Ảnh banner tiếp theo"><i class="fas fa-chevron-right"></i></button>
                             <div id="publicHeroDots" class="public-hero-dots" aria-label="Chọn ảnh banner"><button type="button" class="active" data-hero-dot="0" aria-label="Ảnh banner 1"></button></div>
                             <span class="hero-banner-shine"></span>
+                        </div>
+                        <div class="public-school-ticker" aria-label="Thông điệp nhà trường">
+                            <div class="public-school-ticker-label"><i class="fas fa-bullhorn"></i><span>THÔNG ĐIỆP NHÀ TRƯỜNG</span></div>
+                            <div class="public-school-ticker-window">
+                                <div class="public-school-ticker-track">
+                                    <span>Học để biết - Học để làm - Học để chung sống - Học để khẳng định mình</span><b>★</b><span>Mỗi ngày đến trường là một ngày vui</span><b>★</b><span>Yêu thương - Đồng hành - Cùng tiến bộ</span><b>★</b><span>Vì học sinh thân yêu</span><b>★</b><span>Xây dựng trường học an toàn - thân thiện - hạnh phúc</span><b>★</b>
+                                    <span>Học để biết - Học để làm - Học để chung sống - Học để khẳng định mình</span><b>★</b><span>Mỗi ngày đến trường là một ngày vui</span><b>★</b><span>Yêu thương - Đồng hành - Cùng tiến bộ</span><b>★</b><span>Vì học sinh thân yêu</span><b>★</b><span>Xây dựng trường học an toàn - thân thiện - hạnh phúc</span><b>★</b>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <aside class="public-u-side public-u-right" aria-label="Tiện ích">
@@ -116,12 +125,12 @@
             <section id="gioi-thieu" class="site-section about-school-section">
                 <div class="site-container about-school-grid">
                     <div class="about-school-visual">
-                        <img src="assets/logo-lai-son.png" alt="Logo Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn" decoding="async">
+                        <img src="assets/logo-phan-hieu-tran-quoc-toan.png" alt="Logo Trường Tiểu học-Trung học Cơ sở & Trung học phổ thông Lại Sơn_Phân hiệu trường Tiểu học Trần Quốc Toản" decoding="async">
                         <div class="about-school-badge"><i class="fas fa-location-dot"></i><span>Kiên Hải · An Giang</span></div>
                     </div>
                     <div class="about-school-copy">
                         <div class="section-heading section-heading-left"><span>GIỚI THIỆU NHÀ TRƯỜNG</span><h2>Nơi gieo tri thức giữa miền biển đảo</h2></div>
-                        <p><strong>Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn</strong>. Website là không gian kết nối thông tin nhà trường và hệ thống quản lý học sinh dành cho cán bộ, giáo viên.</p>
+                        <p><strong>Trường Tiểu học-Trung học Cơ sở & Trung học phổ thông Lại Sơn_Phân hiệu trường Tiểu học Trần Quốc Toản</strong>. Website là không gian kết nối thông tin nhà trường và hệ thống quản lý học sinh dành cho cán bộ, giáo viên.</p>
                         <p>Nhà trường hướng đến môi trường giáo dục thân thiện, an toàn, ứng dụng công nghệ hiệu quả và đồng hành cùng học sinh trong quá trình học tập, rèn luyện.</p>
                         <div class="school-values"><span><i class="fas fa-heart"></i> Tình thương</span><span><i class="fas fa-book-open-reader"></i> Tri thức</span><span><i class="fas fa-shield-heart"></i> Trách nhiệm</span></div>
                     </div>
@@ -179,12 +188,12 @@
 
         <footer class="site-footer">
             <div class="site-container footer-grid">
-                <div class="footer-brand"><div class="site-brand-mark site-brand-logo"><img src="assets/logo-lai-son.png" alt="Logo Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn" decoding="async"></div><div><strong>TRƯỜNG TIỂU HỌC-TRUNG HỌC CƠ SỞ & TRUNG HỌC PHỔ THÔNG LẠI SƠN</strong><p>Đặc khu Kiên Hải, tỉnh An Giang</p></div></div>
+                <div class="footer-brand"><div class="site-brand-mark site-brand-logo"><img src="assets/logo-phan-hieu-tran-quoc-toan.png" alt="Logo Trường Tiểu học-Trung học Cơ sở & Trung học phổ thông Lại Sơn_Phân hiệu trường Tiểu học Trần Quốc Toản" decoding="async"></div><div><strong>TRƯỜNG TIỂU HỌC-TRUNG HỌC CƠ SỞ & TRUNG HỌC PHỔ THÔNG LẠI SƠN_PHÂN HIỆU TRƯỜNG TIỂU HỌC TRẦN QUỐC TOẢN</strong><p>Đặc khu Kiên Hải, tỉnh An Giang</p></div></div>
                 <div><h4>Liên kết nhanh</h4><a href="#trang-chu">Trang chủ</a><a href="#gioi-thieu">Giới thiệu</a><a href="#tin-tuc">Tin tức</a><a href="#hinh-anh">Hình ảnh</a><a href="#video">Video</a><a href="#tai-lieu">Tài liệu</a><a href="#lien-ket">Liên kết</a></div>
                 <div><h4>Hỗ trợ</h4><a href="#">Hướng dẫn sử dụng</a><a href="#">Câu hỏi thường gặp</a><button class="footer-login-link" data-open-login>Đăng nhập hệ thống</button></div>
                 <div><h4>Liên hệ</h4><p><i class="fas fa-location-dot"></i> Ấp Bãi Nhà A, Đặc khu Kiên Hải, tỉnh An Giang</p><p><i class="fas fa-phone"></i> <a href="tel:0942775343">0942 775 343</a></p><p><i class="fas fa-envelope"></i> <a href="mailto:vothanhdamkg1982@gmail.com">vothanhdamkg1982@gmail.com</a></p></div>
             </div>
-            <div class="site-container footer-bottom"><span>© 2026 Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn.</span><span>Đặc khu Kiên Hải, tỉnh An Giang</span></div>
+            <div class="site-container footer-bottom"><span>© 2026 Trường Tiểu học-Trung học Cơ sở & Trung học phổ thông Lại Sơn_Phân hiệu trường Tiểu học Trần Quốc Toản.</span><span>Đặc khu Kiên Hải, tỉnh An Giang</span></div>
         </footer>
         <button id="publicBackToTop" class="public-back-to-top" aria-label="Lên đầu trang"><i class="fas fa-arrow-up"></i></button>
 
@@ -238,7 +247,7 @@
         <div class="login-box">
             <button type="button" id="loginCloseBtn" class="login-close-btn" aria-label="Đóng"><i class="fas fa-times"></i></button>
             <div class="login-logo login-school-logo">
-                <img src="assets/logo-lai-son.png" alt="Logo Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn" decoding="async">
+                <img src="assets/logo-lai-son.png" alt="Logo Trường Tiểu học-Trung học Cơ sở & Trung học phổ thông Lại Sơn_Phân hiệu trường Tiểu học Trần Quốc Toản" decoding="async">
             </div>
             <h2 class="login-title">Đăng nhập hệ thống</h2>
             <form id="loginForm">
@@ -351,7 +360,7 @@
     </div>
 
     <script type="module" src="supabase.js?v=14858"></script>
-    <script type="module" src="script.js?v=1506"></script>
+    <script type="module" src="script.js?v=15074"></script>
     <div id="sidebarOverlay" class="sidebar-overlay"></div>
 </body>
 </html>

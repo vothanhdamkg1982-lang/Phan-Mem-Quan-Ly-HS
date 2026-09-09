@@ -3,7 +3,7 @@
  * HỆ THỐNG QUẢN LÝ HỌC SINH TIỂU HỌC - JavaScript ES6
  * HỖ TRỢ NHIỀU MÔN HỌC (TIN HỌC & CÔNG NGHỆ)
  * ============================================================
- * Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn - Đặc khu Kiên Hải - An Giang
+ * Trường Tiểu học-Trung học Cơ sở & Trung học phổ thông Lại Sơn_Phân hiệu trường Tiểu học Trần Quốc Toản - Đặc khu Kiên Hải - An Giang
  * Giáo viên: Võ Thanh Đậm
  * Khối: 3, 4, 5
  * ============================================================
@@ -69,7 +69,7 @@ function renderWheel() {
                     <!-- Tùy chọn & Thao tác -->
                     <div style="display: flex; align-items: center; gap: 0.6rem;">
                         <label style="display: flex; align-items: center; gap: 0.3rem; font-size: 0.85rem; cursor: pointer; margin: 0;">
-                            <input type="checkbox" id="wheelPreventDuplicates" checked onchange="WHEEL_STATE.preventDuplicates = this.checked">
+                            <input type="checkbox" id="wheelPreventDuplicates" checked onchange="setWheelPreventDuplicates(this.checked)">
                             Không trùng
                         </label>
                         <button class="btn btn-secondary btn-sm" onclick="resetWheel()" title="Đặt lại lượt quay">
@@ -256,10 +256,11 @@ function loadWheelStudents(classId) {
     
     WHEEL_STATE.participants = uniqueStudents.map(s => ({
         ...s,
-        called: false
+        called: false,
+        enabled: true
     }));
     
-    WHEEL_STATE.remainingStudents = WHEEL_STATE.participants.filter(s => !s.called);
+    WHEEL_STATE.remainingStudents = WHEEL_STATE.participants.filter(s => s.enabled !== false && !s.called);
     WHEEL_STATE.selectedStudents = [];
     WHEEL_STATE.currentWinner = null;
     WHEEL_STATE.winnerId = null;
@@ -272,50 +273,81 @@ function loadWheelStudents(classId) {
     showToast(`Đã tải ${WHEEL_STATE.participants.length} học sinh từ lớp ${WHEEL_STATE.selectedClassName}`, 'success', 1500);
 }
 
+function getEnabledWheelParticipants() {
+    return WHEEL_STATE.participants.filter(s => s.enabled !== false);
+}
+
+function syncWheelRemainingStudents() {
+    const enabled = getEnabledWheelParticipants();
+    WHEEL_STATE.remainingStudents = enabled.filter(s => !s.called);
+    return WHEEL_STATE.remainingStudents;
+}
+
+function setWheelPreventDuplicates(checked) {
+    WHEEL_STATE.preventDuplicates = !!checked;
+    syncWheelRemainingStudents();
+    updateWheelStats();
+    drawWheel();
+}
+
+function toggleWheelParticipant(studentId, checked) {
+    if (WHEEL_STATE.isSpinning) return;
+    const participant = WHEEL_STATE.participants.find(s => String(s.id) === String(studentId));
+    if (!participant) return;
+
+    participant.enabled = !!checked;
+    // Nếu bỏ học sinh khỏi danh sách tham gia, không tính em đó là "còn lại".
+    syncWheelRemainingStudents();
+    updateWheelStats();
+    renderStudentList();
+    drawWheel();
+}
+
 function renderStudentList() {
     const container = document.getElementById('wheelStudentList');
     if (!container) return;
-    
+
     const students = WHEEL_STATE.participants;
-    
     if (students.length === 0) {
         container.innerHTML = '<p class="text-muted">Chưa có học sinh trong lớp này.</p>';
         return;
     }
-    
+
     const html = students.map((s) => {
-        const isCalled = s.called || false;
-        const icon = isCalled ? '✅' : '⬜';
-        const cls = isCalled ? 'called' : '';
-        return `<div class="student-item ${cls}">
-            <span class="student-icon">${icon}</span>
-            <span class="student-name">${s.fullName}</span>
+        const isCalled = !!s.called;
+        const isEnabled = s.enabled !== false;
+        const cls = `${isCalled ? 'called' : ''} ${!isEnabled ? 'wheel-student-disabled' : ''}`.trim();
+        const sid = String(s.id || '').replace(/'/g, "\\'");
+        return `<label class="student-item ${cls}" style="cursor:pointer;">
+            <input type="checkbox" class="wheel-student-check" ${isEnabled ? 'checked' : ''}
+                   onchange="toggleWheelParticipant('${sid}', this.checked)"
+                   ${WHEEL_STATE.isSpinning ? 'disabled' : ''}>
+            <span class="student-name">${escapeHtml(s.fullName || '')}</span>
             ${isCalled ? '<span class="badge badge-success">Đã gọi</span>' : ''}
-        </div>`;
+        </label>`;
     }).join('');
-    
+
     container.innerHTML = html;
 }
 
 function updateWheelStats() {
-    const total = WHEEL_STATE.participants.length;
-    const called = WHEEL_STATE.selectedStudents.length;
-    const remaining = WHEEL_STATE.remainingStudents.length;
-    
+    const enabled = getEnabledWheelParticipants();
+    const remaining = syncWheelRemainingStudents();
+    const called = enabled.filter(s => s.called).length;
+
     const countEl = document.getElementById('wheelStudentCount');
     const calledEl = document.getElementById('wheelCalledCount');
     const remainingEl = document.getElementById('wheelRemainingCount');
-    
-    if (countEl) countEl.textContent = total;
+
+    if (countEl) countEl.textContent = enabled.length;
     if (calledEl) calledEl.textContent = called;
-    if (remainingEl) remainingEl.textContent = remaining;
+    if (remainingEl) remainingEl.textContent = WHEEL_STATE.preventDuplicates ? remaining.length : enabled.length;
 }
 
 function getWheelStudents() {
-    if (WHEEL_STATE.preventDuplicates) {
-        return WHEEL_STATE.remainingStudents;
-    }
-    return WHEEL_STATE.participants;
+    const enabled = getEnabledWheelParticipants();
+    if (!WHEEL_STATE.preventDuplicates) return enabled;
+    return syncWheelRemainingStudents();
 }
 
 // ============================================================
@@ -477,8 +509,15 @@ function spinWheel() {
     if (WHEEL_STATE.isSpinning) return;
     
     const students = getWheelStudents();
-    if (WHEEL_STATE.participants.length > 0 && WHEEL_STATE.remainingStudents.length === 0) {
-    showToast('🎉 Đã gọi hết học sinh trong lớp!', 'success');
+    const enabledParticipants = getEnabledWheelParticipants();
+
+    if (enabledParticipants.length === 0) {
+        showToast('Vui lòng chọn ít nhất 1 học sinh tham gia vòng quay.', 'warning');
+        return;
+    }
+
+    if (WHEEL_STATE.preventDuplicates && students.length === 0) {
+    showToast('🎉 Đã gọi hết học sinh đang tham gia!', 'success');
     document.getElementById('wheelResult').style.display = 'block';
     document.getElementById('winnerName').textContent = '🎉 HOÀN THÀNH!';
     document.getElementById('winnerClass').textContent = 'Đã gọi tất cả học sinh';
@@ -620,7 +659,7 @@ function showWinner(winner) {
         if (!WHEEL_STATE.selectedStudents.find(s => s.id === winner.id)) {
             WHEEL_STATE.selectedStudents.push(winner);
         }
-        WHEEL_STATE.remainingStudents = WHEEL_STATE.participants.filter(s => !s.called);
+        WHEEL_STATE.remainingStudents = WHEEL_STATE.participants.filter(s => s.enabled !== false && !s.called);
     }
     
     WHEEL_STATE.currentWinner = winner;
@@ -678,7 +717,7 @@ function showWinner(winner) {
 updateWinnerAvatar(winner);
 
 // Nếu đã gọi hết học sinh, hiển thị nút quay lại Dashboard
-if (WHEEL_STATE.remainingStudents.length === 0 && WHEEL_STATE.participants.length > 0) {
+if (WHEEL_STATE.preventDuplicates && syncWheelRemainingStudents().length === 0 && getEnabledWheelParticipants().length > 0) {
     const actionsDiv = document.querySelector('.result-actions');
     if (actionsDiv && !actionsDiv.querySelector('.btn-back-dashboard')) {
         const backBtn = document.createElement('button');
@@ -710,7 +749,7 @@ function resetWheel() {
     WHEEL_STATE.currentWinner = null;
     WHEEL_STATE.winnerId = null;
     WHEEL_STATE.participants.forEach(s => s.called = false);
-    WHEEL_STATE.remainingStudents = [...WHEEL_STATE.participants];
+    WHEEL_STATE.remainingStudents = WHEEL_STATE.participants.filter(s => s.enabled !== false);
     
     const resultDiv = document.getElementById('wheelResult');
     if (resultDiv) resultDiv.style.display = 'none';
@@ -995,6 +1034,8 @@ document.head.appendChild(wheelConfettiStyle);
 // ============================================================
 
 window.renderWheel = renderWheel;
+window.toggleWheelParticipant = toggleWheelParticipant;
+window.setWheelPreventDuplicates = setWheelPreventDuplicates;
 window.initWheel = initWheel;
 window.onWheelClassChange = onWheelClassChange;
 window.loadWheelStudents = loadWheelStudents;
@@ -1031,7 +1072,7 @@ const APP_STATE = {
     learningComments: [],
     files: [],
     settings: {
-        schoolName: 'Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn',
+        schoolName: 'Trường Tiểu học-Trung học Cơ sở & Trung học phổ thông Lại Sơn_Phân hiệu trường Tiểu học Trần Quốc Toản',
         schoolYear: '2026-2027',
         theme: 'light',
         logo: '',
@@ -1745,7 +1786,7 @@ async function loadAllData() {
 
         // BƯỚC 148.5.7: cấu hình nhận diện tạm dùng cho năm học 2026-2027.
         // Giữ cố định tại runtime để dữ liệu app3_settings cũ không ghi đè tên trường/năm học mới.
-        APP_STATE.settings.schoolName = 'Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn';
+        APP_STATE.settings.schoolName = 'Trường Tiểu học-Trung học Cơ sở & Trung học phổ thông Lại Sơn_Phân hiệu trường Tiểu học Trần Quốc Toản';
         APP_STATE.settings.schoolYear = '2026-2027';
 
         if (APP_STATE.settings.theme === 'dark') {
@@ -1783,6 +1824,15 @@ function updateClassCounts() {
 // ============================================================
 function normalizeVnEduText(v) {
     return String(v ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function escapeHtml(v) {
+    return String(v ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function escapeHtmlAttr(v) {
@@ -5578,7 +5628,7 @@ const quality = evaluation.quality || '';
                 </table>
 
                 <div class="footer">
-                    &copy; ${new Date().getFullYear()} Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn - Hệ thống QLHS
+                    &copy; ${new Date().getFullYear()} Trường Tiểu học-Trung học Cơ sở & Trung học phổ thông Lại Sơn_Phân hiệu trường Tiểu học Trần Quốc Toản - Hệ thống QLHS
                 </div>
             </div>
             <script>
@@ -5804,27 +5854,43 @@ function publicSafeImageUrl(value) {
 }
 let PUBLIC_HERO_INDEX = 0;
 let PUBLIC_HERO_TIMER = null;
+const PUBLIC_HERO_STATIC_SLIDES = [
+    { src:'assets/banners/banner-01-truong-hoc-lai-son.webp', title:'Lại Sơn - Phân hiệu Trần Quốc Toản' },
+    { src:'assets/banners/banner-02-uom-mam-uoc-mo.webp', title:'Nơi ươm mầm những ước mơ' },
+    { src:'assets/banners/banner-03-vi-hoc-sinh-than-yeu.webp', title:'Vì học sinh thân yêu' },
+    { src:'assets/banners/banner-04-uom-mam-hanh-phuc.webp', title:'Ươm mầm hạnh phúc' },
+    { src:'assets/banners/banner-05-truong-hoc-than-thien.webp', title:'Trường học thân thiện' },
+    { src:'assets/banners/banner-06-hoc-hom-nay-vung-tuong-lai.webp', title:'Học hôm nay - Vững tương lai' },
+    { src:'assets/banners/banner-07-tri-thuc-tuong-lai.webp', title:'Tri thức hôm nay - Tương lai ngày mai' },
+    { src:'assets/banners/banner-08-sang-tao-phat-trien.webp', title:'Sáng tạo - Phát triển' }
+];
 function setPublicHeroSlide(index=0){
     const slides=[...document.querySelectorAll('#publicHeroSlides .public-hero-slide')];
     const dots=[...document.querySelectorAll('#publicHeroDots [data-hero-dot]')];
     if(!slides.length) return;
     PUBLIC_HERO_INDEX=(Number(index)+slides.length)%slides.length;
-    slides.forEach((el,i)=>el.classList.toggle('active',i===PUBLIC_HERO_INDEX));
+    slides.forEach((el,i)=>{
+        el.classList.toggle('active',i===PUBLIC_HERO_INDEX);
+    });
     dots.forEach((el,i)=>el.classList.toggle('active',i===PUBLIC_HERO_INDEX));
 }
 function startPublicHeroTimer(){
     if(PUBLIC_HERO_TIMER) clearInterval(PUBLIC_HERO_TIMER);
     const count=document.querySelectorAll('#publicHeroSlides .public-hero-slide').length;
-    if(count>1) PUBLIC_HERO_TIMER=setInterval(()=>setPublicHeroSlide(PUBLIC_HERO_INDEX+1),6500);
+    if(count>1) PUBLIC_HERO_TIMER=setInterval(()=>setPublicHeroSlide(PUBLIC_HERO_INDEX+1),7200);
 }
-function setupPublicHero(images=[]){
+function setupPublicHero(_images=[]){
     const slidesBox=document.getElementById('publicHeroSlides');
     const dotsBox=document.getElementById('publicHeroDots');
     if(!slidesBox||!dotsBox) return;
-    const extra=(images||[]).filter(x=>x?.media_url).slice(0,4);
-    const slides=[{media_url:'assets/banner-lai-son.png',title:'Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn'},...extra];
-    slidesBox.innerHTML=slides.map((item,i)=>`<figure class="public-hero-slide ${i===0?'active':''}" data-hero-index="${i}"><img src="${publicSafeMediaUrl(item.media_url)||'assets/banner-lai-son.png'}" alt="${publicEscape(item.title||'Hoạt động nhà trường')}" ${i?'loading="lazy"':''}></figure>`).join('');
-    dotsBox.innerHTML=slides.map((_,i)=>`<button type="button" class="${i===0?'active':''}" data-hero-dot="${i}" aria-label="Ảnh banner ${i+1}"></button>`).join('');
+
+    // BƯỚC 150.7: banner độc lập. Không lấy ảnh từ Thư viện ảnh / app3_public_media.
+    const slides=PUBLIC_HERO_STATIC_SLIDES;
+    slidesBox.innerHTML=slides.map((item,i)=>`
+        <figure class="public-hero-slide ${i===0?'active':''}" data-hero-index="${i}">
+            <img class="public-hero-main" src="${item.src}" alt="${publicEscape(item.title)}" ${i?'loading="lazy"':'fetchpriority="high"'} decoding="async">
+        </figure>`).join('');
+    dotsBox.innerHTML=slides.map((_,i)=>`<button type="button" class="${i===0?'active':''}" data-hero-dot="${i}" aria-label="Banner ${i+1}"></button>`).join('');
     PUBLIC_HERO_INDEX=0;
     dotsBox.querySelectorAll('[data-hero-dot]').forEach(btn=>btn.addEventListener('click',()=>{setPublicHeroSlide(Number(btn.dataset.heroDot));startPublicHeroTimer();}));
     const prev=document.getElementById('publicHeroPrev'), next=document.getElementById('publicHeroNext');
@@ -6850,7 +6916,7 @@ function initPublicWebsite() {
     // Đồng bộ lại cấu hình cục bộ để các lần mở sau không còn giữ năm học cũ.
     try {
         const localSettings = JSON.parse(localStorage.getItem('settings') || '{}');
-        localSettings.schoolName = 'Trường Tiểu học-Trung học cơ sở & Trung học phổ thông Lại Sơn';
+        localSettings.schoolName = 'Trường Tiểu học-Trung học Cơ sở & Trung học phổ thông Lại Sơn_Phân hiệu trường Tiểu học Trần Quốc Toản';
         localSettings.schoolYear = '2026-2027';
         localStorage.setItem('settings', JSON.stringify(localSettings));
     } catch (_) {}

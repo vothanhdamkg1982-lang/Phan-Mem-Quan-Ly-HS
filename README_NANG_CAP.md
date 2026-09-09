@@ -1,12 +1,7 @@
-# BƯỚC 150.6 – HOÀN THIỆN RESPONSIVE CỔNG THÔNG TIN
+# BƯỚC 150.6.2 – SỬA VÒNG QUAY + CẬP NHẬT TÊN TRƯỜNG
 
-Phát triển trực tiếp từ Bước 150.5. Không cần SQL.
-
-- Thêm menu trượt dành riêng cho mobile/tablet, có nút vào hệ thống quản lý.
-- Chuẩn hóa header, banner, khối Tiện ích, khoảng cách section và footer trên màn hình nhỏ.
-- Ẩn menu trái ở mobile để tránh kéo dài trang và dùng menu hamburger thay thế.
-- Cải thiện touch target, safe-area iPhone, chống tràn ngang, thanh chip cuộn ngang gọn.
-- Điều hướng anchor có bù header sticky và trạng thái active đồng bộ.
-- Giữ lazy loading ảnh động; thêm decoding/fetch priority hợp lý cho ảnh tĩnh/banner.
-- Hỗ trợ prefers-reduced-motion.
-- Giữ nguyên đăng nhập, dữ liệu, Excel/VNEDU, thống kê, vòng quay và các module quản lý từ 150.4.11/150.5.
+- Sửa lỗi `escapeHtml is not defined` làm danh sách tham gia và bánh xe không render.
+- Giữ nguyên logic vòng quay của 150.6.1; sau khi chọn lớp, danh sách và bánh xe được render bình thường.
+- Cập nhật tên trường hiển thị thành: **Trường Tiểu học-Trung học Cơ sở & Trung học phổ thông Lại Sơn_Phân hiệu trường Tiểu học Trần Quốc Toản**.
+- Không thay đổi tiêu đề kỹ thuật trong mẫu VNEDU cũ để tránh ảnh hưởng khả năng tương thích nhập/xuất VNEDU.
+- Không cần chạy SQL.
