@@ -109,6 +109,13 @@ begin
     if auth.uid() is null then
         raise exception 'Bạn phải đăng nhập để khôi phục dữ liệu.';
     end if;
+
+    -- BƯỚC 151.1: Full Restore là thao tác hủy/thay thế toàn bộ dữ liệu,
+    -- vì vậy chỉ Admin đang hoạt động mới được phép thực thi RPC này.
+    if not public.app3_is_admin() then
+        raise exception 'Chỉ tài khoản Admin mới được phép khôi phục toàn bộ dữ liệu.';
+    end if;
+
     if p_confirmation is distinct from 'FULL_RESTORE' then
         raise exception 'Thiếu mã xác nhận FULL_RESTORE.';
     end if;

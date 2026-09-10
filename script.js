@@ -664,6 +664,11 @@ function showWinner(winner) {
     
     WHEEL_STATE.currentWinner = winner;
     WHEEL_STATE.winnerId = winner.id;
+
+    // BƯỚC 151.5: vòng quay không cần tải ảnh cả lớp. Chỉ tải ảnh người trúng.
+    ensureStudentAvatar(winner)
+        .then(() => updateWinnerAvatar(winner))
+        .catch(err => console.warn('[LAZY AVATAR] Không tải được ảnh người trúng:', err));
     
     // Cập nhật UI
     const resultDiv = document.getElementById('wheelResult');
@@ -1541,8 +1546,6 @@ function applyCurrentUserDisplayScope() {
 // ============================================================
 
 async function loadAllData() {
-    const loadStartTime = performance.now();
-    console.time('LOAD ALL DATA');
     showLoading();
 
     try {
@@ -1553,8 +1556,7 @@ async function loadAllData() {
         }
 
         // BƯỚC 150.4.11: gom toàn bộ truy vấn độc lập vào MỘT lượt song song.
-        // Trước đây app phải chờ môn/lớp xong mới bắt đầu tải học sinh, điểm, điểm danh...,
-        // tạo thêm một vòng chờ mạng trên cả máy tính và điện thoại.
+        // BƯỚC 151.6: đã gỡ mã đo chẩn đoán tạm thời; giữ nguyên cơ chế tải song song.
         const [
             subjectsResult,
             classesResult,
@@ -1577,7 +1579,9 @@ async function loadAllData() {
                 .order('name'),
             supabase
                 .from('app3_students')
-                .select('*, app3_classes(name)')
+                // BƯỚC 151.5: không tải avatar_url ở lần vào hệ thống.
+                // Ảnh sẽ được tải theo nhu cầu để tránh kéo toàn bộ base64 của 443 học sinh.
+                .select('id, student_code, full_name, dob, gender, class_id, class_code, grade, address, phone, email, father_name, mother_name, parent_phone, enrollment_date, status, note, app3_classes(name)')
                 .order('full_name'),
             supabase
                 .from('app3_scores')
@@ -1642,6 +1646,7 @@ async function loadAllData() {
         });
 
         if (studentsResult.error) throw studentsResult.error;
+
         if (scoresResult.error) throw scoresResult.error;
         if (attendanceResult.error) throw attendanceResult.error;
         if (rewardsResult.error) throw rewardsResult.error;
@@ -1667,7 +1672,10 @@ async function loadAllData() {
             enrollmentDate: s.enrollment_date,
             status: s.status,
             note: s.note,
-            avatar: s.avatar_url || DEFAULT_AVATAR,
+            // BƯỚC 151.5: avatar chưa tải ở lần đăng nhập; chỉ lấy khi giao diện cần.
+            avatar_url: null,
+            avatar: DEFAULT_AVATAR,
+            _avatarLoaded: false,
             grade: s.grade,
             class_id: s.class_id
         }));
@@ -1803,8 +1811,6 @@ async function loadAllData() {
         console.error('Lỗi tải dữ liệu:', err);
         showToast('Không thể tải dữ liệu từ Supabase. Vui lòng kiểm tra kết nối.', 'error');
     } finally {
-        console.timeEnd('LOAD ALL DATA');
-        console.log(`Tổng thời gian loadAllData: ${(performance.now() - loadStartTime).toFixed(0)} ms`);
         hideLoading();
     }
 }
@@ -2483,6 +2489,91 @@ function initCharts() {
 }
 
 // ============================================================
+// BƯỚC 151.5 - TẢI ẢNH HỌC SINH THEO NHU CẦU
+// ============================================================
+function getCanonicalStudent(studentOrId) {
+    if (!studentOrId) return null;
+    if (typeof studentOrId === 'object') {
+        return (APP_STATE.students || []).find(s =>
+            (studentOrId.db_uuid && s.db_uuid === studentOrId.db_uuid) ||
+            (studentOrId.id && s.id === studentOrId.id)
+        ) || studentOrId;
+    }
+    return (APP_STATE.students || []).find(s => s.id === studentOrId || s.db_uuid === studentOrId) || null;
+}
+
+function copyStudentAvatar(source, target) {
+    if (!source || !target || source === target) return;
+    target.avatar_url = source.avatar_url || null;
+    target.avatar = source.avatar || DEFAULT_AVATAR;
+    target._avatarLoaded = source._avatarLoaded === true;
+}
+
+async function ensureStudentAvatar(studentOrId, { throwOnError = false } = {}) {
+    const original = typeof studentOrId === 'object' ? studentOrId : null;
+    const student = getCanonicalStudent(studentOrId);
+    if (!student) return DEFAULT_AVATAR;
+
+    if (student._avatarLoaded === true) {
+        copyStudentAvatar(student, original);
+        return student.avatar || DEFAULT_AVATAR;
+    }
+
+    const uuid = student.db_uuid;
+    if (!uuid) return DEFAULT_AVATAR;
+
+    const { data, error } = await supabase
+        .from('app3_students')
+        .select('id, avatar_url')
+        .eq('id', uuid)
+        .maybeSingle();
+
+    if (error) {
+        console.warn('[LAZY AVATAR] Không tải được ảnh học sinh:', student.id, error.message);
+        if (throwOnError) throw error;
+        return student.avatar || DEFAULT_AVATAR;
+    }
+
+    student.avatar_url = data?.avatar_url || null;
+    student.avatar = data?.avatar_url || DEFAULT_AVATAR;
+    student._avatarLoaded = true;
+    copyStudentAvatar(student, original);
+    return student.avatar;
+}
+
+async function loadStudentAvatars(students) {
+    const list = Array.isArray(students) ? students : [];
+    const pending = list.filter(s => s && s.db_uuid && s._avatarLoaded !== true);
+    if (!pending.length) return;
+
+    const uuids = [...new Set(pending.map(s => s.db_uuid))];
+    const { data, error } = await supabase
+        .from('app3_students')
+        .select('id, avatar_url')
+        .in('id', uuids);
+
+    if (error) {
+        console.warn('[LAZY AVATAR] Không tải được ảnh trang học sinh:', error.message);
+        return;
+    }
+
+    const avatarMap = new Map((data || []).map(row => [row.id, row.avatar_url || null]));
+    pending.forEach(student => {
+        student.avatar_url = avatarMap.get(student.db_uuid) || null;
+        student.avatar = student.avatar_url || DEFAULT_AVATAR;
+        student._avatarLoaded = true;
+    });
+}
+
+function refreshStudentAvatarCells(students) {
+    (students || []).forEach(student => {
+        document.querySelectorAll(`[data-student-avatar="${student.db_uuid}"]`).forEach(img => {
+            img.src = student.avatar || DEFAULT_AVATAR;
+        });
+    });
+}
+
+// ============================================================
 // 6. QUẢN LÝ HỌC SINH (CRUD + IMPORT/EXCEL + AVATAR)
 // ============================================================
 let studentPage = 1;
@@ -2682,7 +2773,7 @@ const quality = evaluation.quality || '';
         return `<tr>
             <td><input type="checkbox" class="student-check" data-id="${s.id}" ${checked} onchange="toggleStudent('${s.id}')"></td>
             <td>${stt}</td>
-            <td><img src="${avatarSrc}" class="avatar-sm" alt="avatar" style="width:32px;height:32px;border-radius:50%;object-fit:cover;"></td>
+            <td><img src="${avatarSrc}" data-student-avatar="${s.db_uuid}" class="avatar-sm" alt="avatar" style="width:32px;height:32px;border-radius:50%;object-fit:cover;"></td>
             <td><strong>${s.id}</strong></td>
             <td>${s.fullName}</td>
             <td>${formatDate(s.dob)}</td>
@@ -2700,6 +2791,11 @@ const quality = evaluation.quality || '';
             </td>
         </tr>`;
     }).join('');
+
+    // BƯỚC 151.5: chỉ tải ảnh của 10 học sinh trên trang hiện tại, không chặn render bảng.
+    loadStudentAvatars(pageData)
+        .then(() => refreshStudentAvatarCells(pageData))
+        .catch(err => console.warn('[LAZY AVATAR] Lỗi tải ảnh trang hiện tại:', err));
 
     const pag = document.getElementById('studentPagination');
     if (pag) {
@@ -2993,6 +3089,7 @@ const newStudent = {
         status: inserted.status,
         note: inserted.note,
         avatar: inserted.avatar_url || DEFAULT_AVATAR,
+        _avatarLoaded: true,
         grade: inserted.grade,
         class: data.class,
         class_id: inserted.class_id
@@ -3050,6 +3147,9 @@ async function updateStudentInSupabase(id, data, avatarFile, avatarCleared = fal
     const classObj = APP_STATE.classes.find(c => c.name === data.class);
     const classId = classObj ? classObj.id : null;
 
+    // BƯỚC 151.5: phải biết ảnh gốc trước khi cập nhật để không ghi đè ảnh cũ
+    // chỉ vì avatar chưa được tải trong lần đăng nhập ban đầu.
+    await ensureStudentAvatar(existing, { throwOnError: true });
     let avatarUrl = existing.avatar;
     if (avatarCleared && !avatarFile) {
         avatarUrl = DEFAULT_AVATAR;
@@ -3147,6 +3247,8 @@ APP_STATE.scores[id][subject].quality = data.quality;
         status: data.status,
         note: data.note,
         avatar: (avatarCleared && !avatarFile) ? DEFAULT_AVATAR : avatarUrl,
+        avatar_url: (avatarCleared && !avatarFile) ? DEFAULT_AVATAR : avatarUrl,
+        _avatarLoaded: true,
         grade: data.grade,
         class: data.class,
         class_id: classId
@@ -3155,9 +3257,11 @@ APP_STATE.scores[id][subject].quality = data.quality;
     return existing;
 }
 
-function editStudent(id) {
+async function editStudent(id) {
     if (!requireEditPermission('sửa học sinh')) return;
     captureStudentViewState();
+    const student = APP_STATE.students.find(s => s.id === id);
+    if (student) await ensureStudentAvatar(student);
     window.__studentInlineEditorId = id;
     renderPage('students');
 }
@@ -3205,9 +3309,10 @@ async function saveStudentInline(goNext = false) {
         showToast('Lỗi cập nhật: ' + (err?.message || err), 'error');
     }
 }
-function viewStudent(id) {
+async function viewStudent(id) {
     const s = APP_STATE.students.find(st => st.id === id);
     if (!s) return;
+    await ensureStudentAvatar(s);
 
     const avatarSrc = (s.avatar && s.avatar.startsWith('data:image'))
         ? s.avatar
@@ -3384,9 +3489,10 @@ function viewStudent(id) {
     }
 }
 
-function downloadAvatar(studentId) {
+async function downloadAvatar(studentId) {
     const student = APP_STATE.students.find(s => s.id === studentId);
     if (!student) return;
+    await ensureStudentAvatar(student);
     const avatarSrc = (student.avatar && student.avatar.startsWith('data:image')) ? student.avatar : null;
     if (!avatarSrc || avatarSrc === DEFAULT_AVATAR) {
         showToast('Học sinh này chưa có ảnh riêng.', 'warning');
@@ -5505,9 +5611,10 @@ function printStudents() {
     window.print();
 }
 
-function printStudent(id) {
+async function printStudent(id) {
     const s = APP_STATE.students.find(st => st.id === id);
     if (!s) return;
+    await ensureStudentAvatar(s);
     const subject =
     APP_STATE.studentSubject ||
     APP_STATE.subjectCatalog?.[0]?.name ||
